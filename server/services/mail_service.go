@@ -28,8 +28,8 @@ func NewMailService(db *gorm.DB, cfg *config.Config) *MailService {
 	return &MailService{db: db, config: cfg}
 }
 
-// List 获取邮件列表（分页、搜索、筛选）
-func (s *MailService) List(filter models.MailListFilter) ([]models.MailListItem, int64, error) {
+// List 获取邮件列表（分页、搜索、筛选），按所属用户隔离
+func (s *MailService) List(filter models.MailListFilter, userID uint) ([]models.MailListItem, int64, error) {
 	var mails []models.Mail
 	var total int64
 
@@ -42,7 +42,9 @@ func (s *MailService) List(filter models.MailListFilter) ([]models.MailListItem,
 		pageSize = 20
 	}
 
-	query := s.db.Model(&models.Mail{}).Joins("LEFT JOIN mail_accounts ON mails.account_id = mail_accounts.id")
+	query := s.db.Model(&models.Mail{}).
+		Joins("LEFT JOIN mail_accounts ON mails.account_id = mail_accounts.id").
+		Where("mails.user_id = ?", userID)
 
 	// 筛选：指定邮箱账号
 	if filter.AccountID > 0 {
@@ -71,7 +73,7 @@ func (s *MailService) List(filter models.MailListFilter) ([]models.MailListItem,
 	}
 
 	// 统计总数
-	countQuery := s.db.Model(&models.Mail{}).Where("1=1")
+	countQuery := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if filter.AccountID > 0 {
 		countQuery = countQuery.Where("account_id = ?", filter.AccountID)
 	}
@@ -155,11 +157,11 @@ func (s *MailService) List(filter models.MailListFilter) ([]models.MailListItem,
 	return items, total, nil
 }
 
-// GetByID 获取邮件详情（含正文和附件）
-func (s *MailService) GetByID(id uint) (*models.MailResponse, error) {
+// GetByID 获取邮件详情（含正文和附件），校验归属用户
+func (s *MailService) GetByID(id, userID uint) (*models.MailResponse, error) {
 	var mail models.Mail
 
-	if err := s.db.Preload("Attachments").Preload("Account").First(&mail, id).Error; err != nil {
+	if err := s.db.Preload("Attachments").Preload("Account").Where("user_id = ?", userID).First(&mail, id).Error; err != nil {
 		return nil, err
 	}
 
@@ -214,9 +216,9 @@ func (s *MailService) GetByID(id uint) (*models.MailResponse, error) {
 	return &resp, nil
 }
 
-// MarkAsRead 标记邮件为已读/未读
-func (s *MailService) MarkAsRead(id uint, isRead bool) error {
-	return s.db.Model(&models.Mail{}).Where("id = ?", id).
+// MarkAsRead 标记邮件为已读/未读（校验归属用户）
+func (s *MailService) MarkAsRead(id uint, isRead bool, userID uint) error {
+	return s.db.Model(&models.Mail{}).Where("id = ? AND user_id = ?", id, userID).
 		Update("is_read", isRead).Error
 }
 
@@ -227,12 +229,12 @@ type BatchMarkAsReadResult struct {
 	Failed  []uint `json:"failed"`
 }
 
-// BatchMarkAsRead 批量标记邮件已读/未读状态
-func (s *MailService) BatchMarkAsRead(ids []uint, isRead bool) *BatchMarkAsReadResult {
+// BatchMarkAsRead 批量标记邮件已读/未读状态（仅当前用户数据）
+func (s *MailService) BatchMarkAsRead(ids []uint, isRead bool, userID uint) *BatchMarkAsReadResult {
 	result := &BatchMarkAsReadResult{}
 
 	// 批量更新数据库（使用 IN 查询，一次 SQL 完成）
-	dbResult := s.db.Model(&models.Mail{}).Where("id IN ?", ids).
+	dbResult := s.db.Model(&models.Mail{}).Where("id IN ? AND user_id = ?", ids, userID).
 		Update("is_read", isRead)
 
 	if dbResult.Error != nil {
@@ -245,9 +247,9 @@ func (s *MailService) BatchMarkAsRead(ids []uint, isRead bool) *BatchMarkAsReadR
 	return result
 }
 
-// MarkAllAsRead 将符合筛选条件的所有邮件标记为已读
-func (s *MailService) MarkAllAsRead(filter models.MailListFilter) (int64, error) {
-	query := s.db.Model(&models.Mail{})
+// MarkAllAsRead 将符合筛选条件的所有邮件标记为已读（仅当前用户数据）
+func (s *MailService) MarkAllAsRead(filter models.MailListFilter, userID uint) (int64, error) {
+	query := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 
 	if filter.AccountID > 0 {
 		query = query.Where("account_id = ?", filter.AccountID)
@@ -270,9 +272,9 @@ func (s *MailService) MarkAllAsRead(filter models.MailListFilter) (int64, error)
 	return result.RowsAffected, result.Error
 }
 
-// MarkAsStarred 标记邮件星标
-func (s *MailService) MarkAsStarred(id uint, starred bool) error {
-	return s.db.Model(&models.Mail{}).Where("id = ?", id).
+// MarkAsStarred 标记邮件星标（校验归属用户）
+func (s *MailService) MarkAsStarred(id uint, starred bool, userID uint) error {
+	return s.db.Model(&models.Mail{}).Where("id = ? AND user_id = ?", id, userID).
 		Update("is_starred", starred).Error
 }
 
@@ -283,13 +285,13 @@ type DeleteResult struct {
 	ServerDeleteError string `json:"server_delete_error,omitempty"` // 源服务器删除错误信息（如有）
 }
 
-// Delete 删除邮件及其附件，可选同步删除源服务器上的邮件
-func (s *MailService) Delete(id uint) *DeleteResult {
+// Delete 删除邮件及其附件，可选同步删除源服务器上的邮件（校验归属用户）
+func (s *MailService) Delete(id, userID uint) *DeleteResult {
 	result := &DeleteResult{Success: false}
 
 	// 先获取邮件信息（需要 account_id 和 message_uid）
 	var mail models.Mail
-	if err := s.db.First(&mail, id).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).First(&mail, id).Error; err != nil {
 		return result // 邮件不存在
 	}
 
@@ -337,14 +339,14 @@ type BatchDeleteResult struct {
 	ServerSyncResult  map[uint]*DeleteResult `json:"server_sync_result,omitempty"` // 每封邮件的同步删除状态
 }
 
-// BatchDelete 批量删除邮件
-func (s *MailService) BatchDelete(ids []uint) *BatchDeleteResult {
+// BatchDelete 批量删除邮件（仅当前用户数据）
+func (s *MailService) BatchDelete(ids []uint, userID uint) *BatchDeleteResult {
 	result := &BatchDeleteResult{
 		ServerSyncResult: make(map[uint]*DeleteResult),
 	}
 
 	for _, id := range ids {
-		delResult := s.Delete(id)
+		delResult := s.Delete(id, userID)
 		result.ServerSyncResult[id] = delResult
 
 		if delResult.Success {
@@ -388,11 +390,11 @@ func (s *MailService) deleteFromServer(account *models.MailAccount, mail *models
 	}
 }
 
-// GetStats 获取邮件统计信息
-func (s *MailService) GetStats(accountID *uint) map[string]int64 {
+// GetStats 获取邮件统计信息（仅当前用户数据）
+func (s *MailService) GetStats(accountID *uint, userID uint) map[string]int64 {
 	stats := make(map[string]int64)
 
-	query := s.db.Model(&models.Mail{})
+	query := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if accountID != nil {
 		query = query.Where("account_id = ?", *accountID)
 	}
@@ -404,7 +406,7 @@ func (s *MailService) GetStats(accountID *uint) map[string]int64 {
 	stats["total"] = total
 
 	// 已发送
-	sentQuery := s.db.Model(&models.Mail{})
+	sentQuery := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if accountID != nil {
 		sentQuery = sentQuery.Where("account_id = ?", *accountID)
 	}
@@ -412,16 +414,15 @@ func (s *MailService) GetStats(accountID *uint) map[string]int64 {
 	stats["sent"] = sent
 
 	// 未读数
-	s.db.Model(&models.Mail{}).
-		Where("1=1")
+	unreadQuery := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if accountID != nil {
-		query.Where("account_id = ?", *accountID)
+		unreadQuery = unreadQuery.Where("account_id = ?", *accountID)
 	}
-	query.Where("is_read = false").Count(&unread)
+	unreadQuery.Where("is_read = false").Count(&unread)
 	stats["unread"] = unread
 
 	// 有附件
-	q := s.db.Model(&models.Mail{})
+	q := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if accountID != nil {
 		q = q.Where("account_id = ?", *accountID)
 	}
@@ -429,7 +430,7 @@ func (s *MailService) GetStats(accountID *uint) map[string]int64 {
 	stats["with_attachment"] = withAttachment
 
 	// 已标星
-	q2 := s.db.Model(&models.Mail{})
+	q2 := s.db.Model(&models.Mail{}).Where("user_id = ?", userID)
 	if accountID != nil {
 		q2 = q2.Where("account_id = ?", *accountID)
 	}
@@ -531,10 +532,10 @@ func stripHTML(html string) string {
 	return strings.TrimSpace(cleaned.String())
 }
 
-// SendMail 发送邮件
-func (s *MailService) SendMail(req smtp.SendRequest) (*smtp.SendResult, error) {
+// SendMail 发送邮件（校验账号归属用户）
+func (s *MailService) SendMail(req smtp.SendRequest, userID uint) (*smtp.SendResult, error) {
 	var account models.MailAccount
-	if err := s.db.First(&account, req.AccountID).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).First(&account, req.AccountID).Error; err != nil {
 		return nil, fmt.Errorf("邮箱账号不存在 (ID=%d)", req.AccountID)
 	}
 
@@ -545,15 +546,21 @@ func (s *MailService) SendMail(req smtp.SendRequest) (*smtp.SendResult, error) {
 	return smtp.SendMail(&account, &req)
 }
 
-// SaveSentMail 保存已发送邮件到数据库
+// SaveSentMail 保存已发送邮件到数据库（自动归属到所属账号的用户）
 func (s *MailService) SaveSentMail(mail *models.Mail) error {
+	if mail.UserID == 0 && mail.AccountID != 0 {
+		var acc models.MailAccount
+		if err := s.db.Select("user_id").First(&acc, mail.AccountID).Error; err == nil {
+			mail.UserID = acc.UserID
+		}
+	}
 	return s.db.Create(mail).Error
 }
 
-// GetAccountEmail 获取指定账号的邮箱地址
-func (s *MailService) GetAccountEmail(accountID uint) (string, error) {
+// GetAccountEmail 获取指定账号的邮箱地址（校验归属用户）
+func (s *MailService) GetAccountEmail(accountID, userID uint) (string, error) {
 	var account models.MailAccount
-	if err := s.db.Select("email").First(&account, accountID).Error; err != nil {
+	if err := s.db.Select("email").Where("user_id = ?", userID).First(&account, accountID).Error; err != nil {
 		return "", err
 	}
 	return account.Email, nil

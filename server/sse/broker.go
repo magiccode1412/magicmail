@@ -10,13 +10,15 @@ import (
 
 // SSEEvent 表示一个服务器推送事件
 type SSEEvent struct {
-	Event string      `json:"event"` // 事件类型: mail.received, mail.synced, etc.
-	Data  interface{} `json:"data"`  // 事件负载数据
+	Event  string      `json:"event"` // 事件类型: mail.received, mail.synced, etc.
+	Data   interface{} `json:"data"`  // 事件负载数据
+	UserID uint        `json:"-"`     // 目标用户（0 表示广播给所有连接）
 }
 
 // Client 表示一个 SSE 客户端连接
 type Client struct {
 	ID        string
+	UserID    uint // 关联用户 ID（按用户隔离推送）
 	Events    chan *SSEEvent // 事件通道
 	CreatedAt time.Time
 }
@@ -78,6 +80,10 @@ func (b *Broker) run() {
 		case event := <-b.broadcast:
 			b.mu.RLock()
 			for id, client := range b.clients {
+				// 按用户隔离：仅投递给目标用户（UserID=0 表示广播）
+				if event.UserID != 0 && client.UserID != event.UserID {
+					continue
+				}
 				select {
 				case client.Events <- event:
 					// 发送成功
@@ -94,14 +100,15 @@ func (b *Broker) run() {
 }
 
 // Register 注册新的 SSE 客户端，返回客户端 ID 和事件通道
-func (b *Broker) Register() (*Client, string) {
+func (b *Broker) Register(userID uint) (*Client, string) {
 	clientID := generateClientID()
 	client := &Client{
 		ID:        clientID,
+		UserID:    userID,
 		Events:    make(chan *SSEEvent, 32),
 		CreatedAt: time.Now(),
 	}
-	
+
 	b.register <- client
 	return client, clientID
 }
@@ -111,11 +118,25 @@ func (b *Broker) Unregister(clientID string) {
 	b.unregister <- clientID
 }
 
-// Publish 发布事件给所有连接的客户端
+// Publish 发布事件给所有连接的客户端（全局广播）
 func (b *Broker) Publish(eventType string, data interface{}) {
 	event := &SSEEvent{
 		Event: eventType,
 		Data:  data,
+	}
+
+	select {
+	case b.broadcast <- event:
+	default:
+	}
+}
+
+// PublishToUser 发布事件给指定用户的客户端（按用户隔离）
+func (b *Broker) PublishToUser(userID uint, eventType string, data interface{}) {
+	event := &SSEEvent{
+		Event:  eventType,
+		Data:   data,
+		UserID: userID,
 	}
 
 	select {

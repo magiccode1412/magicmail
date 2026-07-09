@@ -10,6 +10,7 @@ import (
 // Webhook 自定义 Webhook 通知配置
 type Webhook struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    uint      `json:"user_id" gorm:"index;not null;default:0;comment:所属用户ID"`
 	Name      string    `json:"name" gorm:"type:varchar(100);not null;comment:Webhook 名称"`
 	URL       string    `json:"url" gorm:"type:varchar(500);not null;comment:Webhook 回调地址"`
 	Events    string    `json:"events" gorm:"type:varchar(200);not null;default:'mail.received';comment:触发事件(逗号分隔)"`

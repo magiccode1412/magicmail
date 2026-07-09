@@ -50,7 +50,7 @@ func (h *AttachmentHandler) Download(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	att, err := h.service.GetByID(uint(id))
+	att, err := h.service.GetByID(uint(id), getUserID(c))
 	if err != nil {
 		if err.Error() == "POP3 附件暂不可用（无缓存且不支持按需下载）" {
 			return c.Status(503).JSON(fiber.Map{
@@ -224,7 +224,7 @@ func (h *AttachmentHandler) ListByMailID(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的邮件 ID"})
 	}
 
-	attachments, err := h.service.GetByMailID(uint(mailID))
+	attachments, err := h.service.GetByMailID(uint(mailID), getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取附件列表失败",

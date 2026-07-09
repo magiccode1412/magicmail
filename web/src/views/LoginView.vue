@@ -151,8 +151,8 @@
           <!-- 注册表单 -->
           <div v-else key="register" class="form-panel">
             <div class="form-header">
-              <h2 class="form-title">初始化管理员</h2>
-              <p class="form-subtitle">创建您的管理员账号以开始使用</p>
+              <h2 class="form-title">{{ registerTitle }}</h2>
+              <p class="form-subtitle">{{ registerSubtitle }}</p>
             </div>
 
             <form @submit.prevent="handleRegister" class="auth-form" autocomplete="on">
@@ -167,7 +167,7 @@
                 <input
                   v-model="regForm.username"
                   type="text"
-                  placeholder="设置管理员用户名"
+                  :placeholder="registerUsernamePlaceholder"
                   autocomplete="new-username"
                   autofocus
                   @focus="focused = 'username'"
@@ -293,7 +293,19 @@ const passwordInput = ref(null)
 
 // 模式切换：登录 / 注册
 const isRegister = ref(authStore.setupRequired)
-const canRegister = computed(() => authStore.setupRequired)
+// 公开注册开启时，已存在用户也可自助注册为普通用户
+const canRegister = computed(() => authStore.setupRequired || authStore.openRegistration)
+// 是否为首次初始化（创建管理员）
+const isInitialSetup = computed(() => authStore.setupRequired)
+
+// 注册表单标题/副标题：区分“初始化管理员”与“开放注册”
+const registerTitle = computed(() => isInitialSetup.value ? '初始化管理员' : '创建账号')
+const registerSubtitle = computed(() =>
+  isInitialSetup.value ? '创建您的管理员账号以开始使用' : '注册一个新账号以使用 Magicmail'
+)
+const registerUsernamePlaceholder = computed(() =>
+  isInitialSetup.value ? '设置管理员用户名' : '设置用户名'
+)
 
 function switchToRegister() {
   isRegister.value = true

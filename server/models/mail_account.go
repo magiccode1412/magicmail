@@ -20,13 +20,14 @@ import (
 type MailAccount struct {
 	ID           uint       `json:"id" gorm:"primaryKey"`
 	Name         string     `json:"name" gorm:"type:varchar(100);not null;comment:显示名称"`
-	Email        string     `json:"email" gorm:"type:varchar(255);not null;uniqueIndex;comment:邮箱地址"`
+	Email        string     `json:"email" gorm:"type:varchar(255);not null;index:idx_user_email,unique;comment:邮箱地址(同一用户不可重复,不同用户可各自绑定)"`
 	Protocol     string     `json:"protocol" gorm:"type:varchar(10);not null;default:'imap';comment:邮件协议(imap/pop3)"`
 	ImapHost     string     `json:"host" gorm:"type:varchar(255);not null;comment:收信服务器地址"`
 	Port         int        `json:"port" gorm:"default:993;comment:收信端口"`
 	SmtpHost     string     `json:"smtp_host" gorm:"type:varchar(255);comment:SMTP发信服务器地址(为空则使用收信地址)"`
 	SmtpPort     int        `json:"smtp_port" gorm:"comment:SMTP端口(默认587)"`
 	Username     string     `json:"username" gorm:"type:varchar(255);not null;comment:登录用户名"`
+	UserID       uint       `json:"user_id" gorm:"index:idx_user_email,unique;not null;default:0;comment:所属用户ID"`
 	Password     string     `json:"-" gorm:"type:text;not null;comment:密码(AES-256-GCM加密存储)"`
 
 	// --- OAuth2 字段（可选，为空时走传统密码认证）---
@@ -286,6 +287,7 @@ type AccountListDTO struct {
 	SmtpHost       string     `gorm:"column:smtp_host" json:"smtp_host,omitempty"`
 	SmtpPort       int        `gorm:"column:smtp_port" json:"smtp_port,omitempty"`
 	Username       string     `json:"username"`
+	UserID         uint       `gorm:"column:user_id" json:"user_id"`
 	PasswordRaw    string     `gorm:"column:password" json:"-"`
 	AuthType       string     `gorm:"column:auth_type" json:"auth_type"`
 	OAuthProvider   string    `gorm:"column:oauth_provider" json:"oauth_provider"`

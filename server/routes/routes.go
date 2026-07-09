@@ -64,6 +64,8 @@ func Register(app *fiber.App, db *gorm.DB) {
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
 	authHandler := handlers.NewAuthHandler(authService)
 	draftHandler := handlers.NewDraftHandler(services.NewDraftService(db))
+	userHandler := handlers.NewUserHandler(authService)
+	settingsHandler := handlers.NewSettingsHandler(authService)
 	pushHandler := handlers.NewPushHandler(pushService)
 
 	// 认证中间件实例
@@ -166,6 +168,24 @@ func Register(app *fiber.App, db *gorm.DB) {
 	push.Post("/unsubscribe", pushHandler.Unsubscribe)   // 取消订阅
 	push.Get("/subscriptions", pushHandler.ListSubscriptions) // 列出订阅
 	push.Post("/test", pushHandler.SendTest)             // 测试推送
+
+	// ============================================================
+	//  管理员专属接口（需认证 + 管理员权限）
+	// ============================================================
+	admin := api.Group("")
+	admin.Use(authMiddleware)
+	admin.Use(middleware.AdminRequired())
+
+	// 用户管理
+	adminUsers := admin.Group("/admin/users")
+	adminUsers.Get("", userHandler.List)          // 用户列表
+	adminUsers.Post("", userHandler.Create)       // 后台创建用户
+	adminUsers.Delete("/:id", userHandler.Delete) // 删除用户（含关联数据）
+
+	// 开放注册开关配置
+	adminSettings := admin.Group("/settings")
+	adminSettings.Get("/open-registration", settingsHandler.GetOpenRegistration)
+	adminSettings.Put("/open-registration", settingsHandler.SetOpenRegistration)
 
 	// 健康检查端点
 	app.Get("/health", func(c *fiber.Ctx) error {

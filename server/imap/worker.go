@@ -357,7 +357,7 @@ func (w *AccountWorker) syncOnce() {
 			}
 		}
 
-		// 触发 Webhook 通知（每封邮件独立触发一次）
+		// 触发 Webhook 通知（每封邮件独立触发一次，仅当前用户配置的 Webhook）
 		nowTs := fmt.Sprintf("%d", time.Now().Unix())
 		for _, mail := range mailList {
 			notifier.TriggerByEvent(w.db, "mail.received", map[string]interface{}{
@@ -374,15 +374,15 @@ func (w *AccountWorker) syncOnce() {
 				"text_body":     mail["text_body"],
 				"html_body":     mail["html_body"],
 				"timestamp":     nowTs,
-			})
+			}, w.account.UserID)
 		}
 
-		// 推送 SSE 实时事件给前端
-		sse.PublishMailReceived(w.account.ID, w.account.Email, count, mailList)
+		// 推送 SSE 实时事件给前端（仅当前用户）
+		sse.PublishMailReceived(w.account.UserID, w.account.ID, w.account.Email, count, mailList)
 
-		// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖）
+		// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖，仅当前用户）
 		notifier.SendPushNotification(
-			1,
+			w.account.UserID,
 			fmt.Sprintf("📧 您有 %d 封新邮件", count),
 			fmt.Sprintf("来自 %s", w.account.Email),
 			map[string]interface{}{"account_id": w.account.ID},

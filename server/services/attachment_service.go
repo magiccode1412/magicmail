@@ -40,10 +40,13 @@ func NewAttachmentService(db *gorm.DB) *AttachmentService {
 	return &AttachmentService{db: db, config: config.Load()}
 }
 
-// GetByID 获取单个附件（含内容/缓存检查/懒加载触发）
-func (s *AttachmentService) GetByID(id uint) (*models.Attachment, error) {
+// GetByID 获取单个附件（含内容/缓存检查/懒加载触发），校验所属邮件归属用户
+func (s *AttachmentService) GetByID(id, userID uint) (*models.Attachment, error) {
 	var att models.Attachment
-	if err := s.db.First(&att, id).Error; err != nil {
+	if err := s.db.
+		Joins("JOIN mails ON mails.id = attachments.mail_id").
+		Where("attachments.id = ? AND mails.user_id = ?", id, userID).
+		First(&att).Error; err != nil {
 		return nil, err
 	}
 
@@ -73,8 +76,15 @@ func (s *AttachmentService) GetByID(id uint) (*models.Attachment, error) {
 	return &att, fmt.Errorf("POP3 附件暂不可用（无缓存且不支持按需下载）")
 }
 
-// GetByMailID 获取邮件的所有附件列表（不含内容）
-func (s *AttachmentService) GetByMailID(mailID uint) ([]models.AttachmentResp, error) {
+// GetByMailID 获取邮件的所有附件列表（不含内容），校验所属邮件归属用户
+func (s *AttachmentService) GetByMailID(mailID, userID uint) ([]models.AttachmentResp, error) {
+	// 先确认邮件归属当前用户
+	var mailCount int64
+	s.db.Model(&models.Mail{}).Where("id = ? AND user_id = ?", mailID, userID).Count(&mailCount)
+	if mailCount == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+
 	var attachments []models.Attachment
 	err := s.db.Where("mail_id = ?", mailID).Find(&attachments).Error
 	if err != nil {

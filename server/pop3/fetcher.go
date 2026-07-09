@@ -94,6 +94,7 @@ func (f *POP3Fetcher) SyncMailbox(client *POP3Client) (int, error) {
 		if existing > 0 {
 			continue
 		}
+		parsed.UserID = client.Account.UserID
 		if err := f.db.Create(parsed).Error; err != nil {
 			log.Printf("⚠️  保存邮件失败 (seq=%d): %v", seq, err)
 			continue

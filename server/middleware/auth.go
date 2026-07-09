@@ -6,6 +6,7 @@ package middleware
 import (
 	"strings"
 
+	"magicmail/models"
 	"magicmail/services"
 
 	"github.com/gofiber/fiber/v2"
@@ -45,9 +46,34 @@ func AuthRequired(authService *services.AuthService) fiber.Handler {
 			return c.Status(401).JSON(fiber.Map{"error": "无法解析认证信息"})
 		}
 
-		c.Locals("user_id", claims["user_id"])
-		c.Locals("username", claims["username"])
+		userID, ok := claims["user_id"].(float64)
+		if !ok {
+			return c.Status(401).JSON(fiber.Map{"error": "无法解析认证信息"})
+		}
+		c.Locals("user_id", userID)
 
+		// ⭐ 校验用户是否仍存在：删除用户后，已签发的 JWT 在过期前仍有效，
+		// 因此每次请求都在数据库核验用户，不存在则强制 401（前端据此清除登录态）。
+		user, err := authService.GetUserByID(uint(userID))
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "账号已被注销，请重新登录"})
+		}
+
+		// 以数据库中的权威角色为准，避免角色被降权后旧 token 仍可越权
+		c.Locals("username", user.Username)
+		c.Locals("role", user.Role)
+
+		return c.Next()
+	}
+}
+
+// AdminRequired 管理员权限中间件：必须登录且角色为 admin
+func AdminRequired() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		role, _ := c.Locals("role").(string)
+		if role != models.RoleAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "需要管理员权限"})
+		}
 		return c.Next()
 	}
 }

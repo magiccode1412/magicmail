@@ -85,7 +85,7 @@ func (h *MailHandler) List(c *fiber.Ctx) error {
 		filter.SortOrder = "desc"
 	}
 
-	mails, total, err := h.service.List(filter)
+	mails, total, err := h.service.List(filter, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取邮件列表失败",
@@ -114,7 +114,7 @@ func (h *MailHandler) Get(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	mail, err := h.service.GetByID(uint(id))
+	mail, err := h.service.GetByID(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "邮件不存在"})
 	}
@@ -143,7 +143,7 @@ func (h *MailHandler) MarkAsRead(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 
-	err = h.service.MarkAsRead(uint(id), body.IsRead)
+	err = h.service.MarkAsRead(uint(id), body.IsRead, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
@@ -179,7 +179,7 @@ func (h *MailHandler) MarkAsStarred(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 
-	err = h.service.MarkAsStarred(uint(id), body.Starred)
+	err = h.service.MarkAsStarred(uint(id), body.Starred, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
@@ -206,7 +206,7 @@ func (h *MailHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	result := h.service.Delete(uint(id))
+	result := h.service.Delete(uint(id), getUserID(c))
 	if !result.Success {
 		return c.Status(500).JSON(fiber.Map{"error": "删除失败"})
 	}
@@ -226,7 +226,7 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请选择要删除的邮件"})
 	}
 
-	result := h.service.BatchDelete(req.IDs)
+	result := h.service.BatchDelete(req.IDs, getUserID(c))
 
 	return c.JSON(fiber.Map{
 		"success":           result.Success,
@@ -250,7 +250,7 @@ func (h *MailHandler) BatchMarkAsRead(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请选择要操作的邮件"})
 	}
 
-	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead)
+	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead, getUserID(c))
 
 	status := "未读"
 	if req.IsRead {
@@ -291,7 +291,7 @@ func (h *MailHandler) MarkAllAsRead(c *fiber.Ctx) error {
 		HasAttachment: body.HasAttachment,
 	}
 
-	updated, err := h.service.MarkAllAsRead(filter)
+	updated, err := h.service.MarkAllAsRead(filter, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
@@ -319,7 +319,7 @@ func (h *MailHandler) GetStats(c *fiber.Ctx) error {
 		}
 	}
 
-	stats := h.service.GetStats(accountID)
+	stats := h.service.GetStats(accountID, getUserID(c))
 	return c.JSON(stats)
 }
 
@@ -359,7 +359,7 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "邮件主题包含非法字符"})
 	}
 
-	result, err := h.service.SendMail(req)
+	result, err := h.service.SendMail(req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"success": false,
@@ -369,7 +369,7 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 	}
 
 	// 发送成功后，保存邮件记录到数据库（folder=sent）
-	senderEmail, _ := h.service.GetAccountEmail(req.AccountID)
+	senderEmail, _ := h.service.GetAccountEmail(req.AccountID, getUserID(c))
 	toJSON, _ := json.Marshal(req.To)
 	ccJSON, _ := json.Marshal(req.Cc)
 

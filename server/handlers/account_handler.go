@@ -40,7 +40,7 @@ func (h *AccountHandler) List(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	pageSize, _ := strconv.Atoi(c.Query("page_size", "20"))
 
-	accounts, total, err := h.service.List(page, pageSize)
+	accounts, total, err := h.service.List(page, pageSize, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取邮箱列表失败",
@@ -69,7 +69,7 @@ func (h *AccountHandler) Get(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	account, err := h.service.GetByID(uint(id))
+	account, err := h.service.GetByID(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "邮箱不存在"})
 	}
@@ -107,7 +107,7 @@ func (h *AccountHandler) Create(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "密码不能为空"})
 	}
 
-	account, err := h.service.Create(req)
+	account, err := h.service.Create(req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "创建失败",
@@ -142,7 +142,7 @@ func (h *AccountHandler) Update(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "必填字段不能为空"})
 	}
 
-	account, err := h.service.Update(uint(id), req)
+	account, err := h.service.Update(uint(id), req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "更新失败",
@@ -165,7 +165,7 @@ func (h *AccountHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	if err := h.service.Delete(uint(id)); err != nil {
+	if err := h.service.Delete(uint(id), getUserID(c)); err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "删除失败",
 			"detail": err.Error(),
@@ -220,7 +220,7 @@ func (h *AccountHandler) TriggerSync(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	err = h.service.TriggerSync(uint(id))
+	err = h.service.TriggerSync(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"success": false, "message": err.Error()})
 	}
@@ -255,7 +255,7 @@ func (h *AccountHandler) ToggleStatus(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效状态值，仅支持 active 或 disabled"})
 	}
 
-	if err := h.service.SetStatus(uint(id), req.Status); err != nil {
+	if err := h.service.SetStatus(uint(id), req.Status, getUserID(c)); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 

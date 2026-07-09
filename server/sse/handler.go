@@ -28,8 +28,12 @@ func StreamHandler(c *fiber.Ctx) error {
 		return c.Status(503).SendString("SSE service not available")
 	}
 
-	// 注册新的客户端连接
-	client, clientID := broker.Register()
+	// 注册新的客户端连接（按用户隔离推送）
+	var userID uint
+	if v, ok := c.Locals("user_id").(float64); ok {
+		userID = uint(v)
+	}
+	client, clientID := broker.Register(userID)
 	defer broker.Unregister(clientID)
 
 	// ⭐ 使用 SetBodyStreamWriter 保持长连接（Fiber SSE 标准写法）
@@ -130,13 +134,13 @@ func HealthCheckHandler(c *fiber.Ctx) error {
 	})
 }
 
-// PublishMailReceived 发布新邮件到达事件（供 Worker 调用）
-func PublishMailReceived(accountID uint, accountEmail string, count int, mails []map[string]interface{}) {
+// PublishMailReceived 发布新邮件到达事件（供 Worker 调用，按用户隔离）
+func PublishMailReceived(userID, accountID uint, accountEmail string, count int, mails []map[string]interface{}) {
 	if GlobalBroker() == nil {
 		return
 	}
 
-	GlobalBroker().Publish("mail.received", fiber.Map{
+	GlobalBroker().PublishToUser(userID, "mail.received", fiber.Map{
 		"account_id":    accountID,
 		"account_email": accountEmail,
 		"mail_count":    count,
@@ -145,13 +149,13 @@ func PublishMailReceived(accountID uint, accountEmail string, count int, mails [
 	})
 }
 
-// PublishMailSynced 发布邮件同步完成事件（供 Worker 调用）
-func PublishMailSynced(accountID uint, accountEmail string) {
+// PublishMailSynced 发布邮件同步完成事件（供 Worker 调用，按用户隔离）
+func PublishMailSynced(userID, accountID uint, accountEmail string) {
 	if GlobalBroker() == nil {
 		return
 	}
 
-	GlobalBroker().Publish("mail.synced", fiber.Map{
+	GlobalBroker().PublishToUser(userID, "mail.synced", fiber.Map{
 		"account_id":    accountID,
 		"account_email": accountEmail,
 		"timestamp":     time.Now().Format(time.RFC3339),

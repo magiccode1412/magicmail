@@ -36,12 +36,16 @@ type hookInfo struct {
 }
 
 // TriggerByEvent 查询匹配的 Webhook 并异步推送（供 Worker 调用，避免循环依赖）
-func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}) {
-	var hooks []hookInfo
-	if err := db.Table("webhooks").
+// userID 用于按用户隔离：仅触发该用户创建的 Webhook；userID=0 表示触发全部（兼容旧行为）
+func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}, userID uint) {
+	query := db.Table("webhooks").
 		Select("id, url, secret, headers, body").
-		Where("enabled = ?", true).
-		Find(&hooks).Error; err != nil {
+		Where("enabled = ?", true)
+	if userID != 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	var hooks []hookInfo
+	if err := query.Find(&hooks).Error; err != nil {
 		log.Printf("[Webhook] 查询失败: %v", err)
 		return
 	}

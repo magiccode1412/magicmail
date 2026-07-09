@@ -58,9 +58,13 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	if err != nil {
 		statusCode := 500
 		msg := "注册失败"
-		if err == services.ErrUserExists {
+		switch err {
+		case services.ErrRegistrationClosed:
+			statusCode = 403
+			msg = "公开注册已关闭，仅管理员可创建账号"
+		case services.ErrUserExists:
 			statusCode = 409
-			msg = "管理员账号已存在，请直接登录"
+			msg = "账号已存在，请直接登录"
 		}
 		return c.Status(statusCode).JSON(fiber.Map{"error": msg, "detail": err.Error()})
 	}

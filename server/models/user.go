@@ -5,17 +5,30 @@ package models
 
 import "time"
 
-// User 用户模型（单用户模式）
+// 用户角色常量
+const (
+	RoleAdmin = "admin" // 管理员
+	RoleUser  = "user"  // 普通用户
+)
+
+// User 用户模型（多用户模式）
 type User struct {
 	ID           uint      `json:"id" gorm:"primaryKey"`
 	Username     string    `json:"username" gorm:"uniqueIndex;size:64;not null"`
 	PasswordHash string    `json:"-" gorm:"size:255;not null;column:password_hash"` // bcrypt 哈希，不序列化输出
+	Role         string    `json:"role" gorm:"size:16;not null;default:'user';comment:角色(admin/user)"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// TableName 指定表名
 func (User) TableName() string {
 	return "users"
+}
+
+// IsAdmin 判断是否为管理员
+func (u User) IsAdmin() bool {
+	return u.Role == RoleAdmin
 }
 
 // ---- 请求 DTO ----
@@ -26,10 +39,17 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required"`
 }
 
-// RegisterRequest 注册请求（仅首次初始化时可用）
+// RegisterRequest 注册请求（首次初始化或开放注册时可用）
 type RegisterRequest struct {
 	Username string `json:"username" validate:"required,min=3,max=32"`
 	Password string `json:"password" validate:"required,min=6,max=64"`
+}
+
+// AdminCreateUserRequest 管理员后台创建用户请求
+type AdminCreateUserRequest struct {
+	Username string `json:"username" validate:"required,min=3,max=32"`
+	Password string `json:"password" validate:"required,min=6,max=64"`
+	Role     string `json:"role" validate:"omitempty,oneof=admin user"` // 可选，默认普通用户
 }
 
 // ---- 响应 DTO ----
@@ -38,10 +58,20 @@ type RegisterRequest struct {
 type LoginResponse struct {
 	Token    string `json:"token"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
+}
+
+// UserResponse 用户列表/详情响应（不暴露密码）
+type UserResponse struct {
+	ID        uint      `json:"id"`
+	Username  string    `json:"username"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // AuthStatusResponse 认证状态响应（用于判断是否需要注册）
 type AuthStatusResponse struct {
-	SetupRequired bool   `json:"setup_required"` // true = 需要注册（尚无用户）
-	Message       string `json:"message"`
+	SetupRequired    bool   `json:"setup_required"`     // true = 需要注册（尚无用户）
+	OpenRegistration bool   `json:"open_registration"`  // 是否开放公开注册
+	Message          string `json:"message"`
 }

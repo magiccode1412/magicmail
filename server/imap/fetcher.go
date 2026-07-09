@@ -191,6 +191,7 @@ func (f *Fetcher) parseMessage(client *IMAPClient, buf *imapclient.FetchMessageB
 
 	// 构建邮件对象（先不包含正文和附件信息）
 	mailObj := &models.Mail{
+		UserID:     client.Account.UserID,
 		AccountID:  client.Account.ID,
 		Folder:     f.folder,
 		MessageID:  messageID,

@@ -27,6 +27,15 @@ func NewDraftService(db *gorm.DB) *DraftService {
 func (s *DraftService) SaveDraft(userID uint, req *SaveDraftRequest) (*models.DraftResponse, error) {
 	var draft models.Draft
 
+	// 校验草稿所引用的邮箱账号归属当前用户
+	if req.AccountID != 0 {
+		var accCount int64
+		s.db.Model(&models.MailAccount{}).Where("id = ? AND user_id = ?", req.AccountID, userID).Count(&accCount)
+		if accCount == 0 {
+			return nil, fmt.Errorf("邮箱账号不存在或无权使用")
+		}
+	}
+
 	if req.ID != nil && *req.ID > 0 {
 		// 更新已有草稿
 		if err := s.db.Where("id = ? AND user_id = ?", *req.ID, userID).First(&draft).Error; err != nil {

@@ -234,6 +234,99 @@
 
       </section>
 
+      <!-- 用户与权限（仅管理员可见） -->
+      <section v-if="authStore.isAdmin" class="settings-section card">
+        <div class="section-header-row">
+          <div>
+            <h3 class="section-title">用户与权限</h3>
+            <p class="section-desc">管理平台用户与公开注册开关，各用户仅能查看与操作自己的数据</p>
+          </div>
+        </div>
+
+        <!-- 开放注册开关 -->
+        <div class="setting-row">
+          <div class="setting-info">
+            <strong>开放公开注册</strong>
+            <small>开启后，访客可在登录页自助注册为普通用户；关闭后仅管理员可后台手动添加</small>
+          </div>
+          <label class="toggle-switch" :class="{ 'toggle-disabled': savingOpenReg }">
+            <input type="checkbox"
+              :checked="openRegistration"
+              :disabled="savingOpenReg"
+              @change.prevent="toggleOpenRegistration" />
+            <span class="toggle-slider"></span>
+            <span v-if="savingOpenReg" class="toggle-hint">保存中</span>
+          </label>
+        </div>
+
+        <!-- 用户列表 -->
+        <div class="user-list-header">
+          <span class="user-list-title">用户列表（{{ users.length }}）</span>
+          <button class="btn btn-primary btn-sm" @click="openAddUser">+ 添加用户</button>
+        </div>
+
+        <div v-if="loadingUsers" class="empty-hint">加载中...</div>
+        <div v-else-if="users.length === 0" class="empty-hint">暂无其他用户</div>
+        <div v-else class="webhook-list">
+          <div v-for="u in users" :key="u.id" class="webhook-card">
+            <div class="webhook-info">
+              <div class="webhook-name-row">
+                <span class="webhook-name">{{ u.username }}</span>
+                <span class="badge" :class="u.role === 'admin' ? 'badge-success' : 'badge-default'">
+                  {{ u.role === 'admin' ? '管理员' : '普通用户' }}
+                </span>
+                <span v-if="u.username === authStore.username" class="badge badge-default">当前账号</span>
+              </div>
+              <div class="webhook-meta">
+                <span>注册于 {{ formatTime(u.created_at) }}</span>
+              </div>
+            </div>
+            <div class="webhook-actions">
+              <button class="btn-icon-text btn-sm text-danger" @click="deleteUserAction(u)">删除</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加用户弹窗 -->
+        <Teleport to="body">
+          <div v-if="showAddUser" class="webhook-modal-overlay" @click.self="closeAddUser">
+            <div class="webhook-modal">
+              <div class="modal-header">
+                <h4 class="form-title">添加用户</h4>
+                <button class="modal-close" @click="closeAddUser">&times;</button>
+              </div>
+              <div class="modal-body">
+                <div class="form-grid">
+                  <div class="form-field" style="grid-column: 1 / -1;">
+                    <label>用户名 *</label>
+                    <input v-model="addForm.username" type="text" placeholder="至少 3 个字符" maxlength="32" />
+                  </div>
+                  <div class="form-field" style="grid-column: 1 / -1;">
+                    <label>密码 *</label>
+                    <input v-model="addForm.password" type="password" placeholder="至少 6 位" maxlength="64" />
+                  </div>
+                  <div class="form-field" style="grid-column: 1 / -1;">
+                    <label>角色</label>
+                    <select v-model="addForm.role" class="poll-select" style="width: 100%;">
+                      <option value="user">普通用户</option>
+                      <option value="admin">管理员</option>
+                    </select>
+                    <small class="field-hint">默认为普通用户，仅可管理自己的数据</small>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <div style="flex:1"></div>
+                <button class="btn btn-secondary btn-sm" @click="closeAddUser">取消</button>
+                <button class="btn btn-primary btn-sm" @click="submitAddUser" :disabled="savingUser">
+                  {{ savingUser ? '创建中...' : '创建用户' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Teleport>
+      </section>
+
       <!-- 邮件渲染设置 -->
       <section class="settings-section card">
         <h3 class="section-title">邮件渲染</h3>
@@ -387,9 +480,13 @@ import { useToast } from '@/composables/useToast'
 import { useUpdateCheck } from '@/composables/useUpdateCheck'
 import { useWebPush } from '@/composables/useWebPush'
 import * as webhookApi from '@/api/webhook'
+import { useAuthStore } from '@/stores/authStore'
+import * as usersApi from '@/api/users'
+import * as settingsApi from '@/api/settings'
 
 const toast = useToast()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 // --- 版本更新检测 ---
 const {
@@ -692,6 +789,101 @@ function truncate(str, len) {
   return str && str.length > len ? str.slice(0, len) + '...' : str
 }
 
+// --- 用户与权限（仅管理员） ---
+const openRegistration = ref(false)
+const savingOpenReg = ref(false)
+const users = ref([])
+const loadingUsers = ref(false)
+const showAddUser = ref(false)
+const savingUser = ref(false)
+
+const addForm = ref({
+  username: '',
+  password: '',
+  role: 'user',
+})
+
+async function fetchOpenRegistration() {
+  try {
+    const res = await settingsApi.getOpenRegistration()
+    openRegistration.value = !!res.open_registration
+  } catch (e) {
+    console.error('获取开放注册状态失败:', e)
+  }
+}
+
+async function toggleOpenRegistration() {
+  savingOpenReg.value = true
+  const next = !openRegistration.value
+  try {
+    const res = await settingsApi.setOpenRegistration(next)
+    openRegistration.value = !!res.open_registration
+    toast.success(next ? '已开放公开注册' : '已关闭公开注册')
+  } catch (e) {
+    toast.error(e.message || '保存失败')
+  } finally {
+    savingOpenReg.value = false
+  }
+}
+
+async function fetchUsers() {
+  loadingUsers.value = true
+  try {
+    const res = await usersApi.listUsers()
+    users.value = res.data || []
+  } catch (e) {
+    console.error('获取用户列表失败:', e)
+  } finally {
+    loadingUsers.value = false
+  }
+}
+
+function openAddUser() {
+  addForm.value = { username: '', password: '', role: 'user' }
+  showAddUser.value = true
+}
+
+function closeAddUser() {
+  showAddUser.value = false
+}
+
+async function submitAddUser() {
+  if (!addForm.value.username || !addForm.value.password) {
+    toast.error('用户名和密码不能为空')
+    return
+  }
+  savingUser.value = true
+  try {
+    await usersApi.createUser({
+      username: addForm.value.username,
+      password: addForm.value.password,
+      role: addForm.value.role,
+    })
+    toast.success('用户已创建')
+    showAddUser.value = false
+    fetchUsers()
+  } catch (e) {
+    toast.error(e.message || '创建失败')
+  } finally {
+    savingUser.value = false
+  }
+}
+
+async function deleteUserAction(u) {
+  if (u.username === authStore.username) {
+    toast.error('不能删除当前登录的账号')
+    return
+  }
+  if (!await toast.confirm(`确定要删除用户「${u.username}」吗？其邮箱账号、邮件等关联数据将一并删除。`)) return
+  try {
+    await usersApi.deleteUser(u.id)
+    toast.success('已删除')
+    fetchUsers()
+  } catch (e) {
+    toast.error(e.message || '删除失败')
+  }
+}
+
 // --- 主题选项 ---
 const themeOptions = [
   {
@@ -744,6 +936,11 @@ onMounted(() => {
   checkNotifStatus()
   fetchWebhooks()
   startCountdown()
+
+  if (authStore.isAdmin) {
+    fetchOpenRegistration()
+    fetchUsers()
+  }
 
   // 监听连接模式变化（MailListView 可能会更新它）
   watch(() => appStore.connectionMode, () => { calcCountdown() }, { immediate: true })
@@ -1124,6 +1321,21 @@ async function clearCache() {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+}
+
+.user-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-light);
+}
+.user-list-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
 }
 
 .webhook-card {
