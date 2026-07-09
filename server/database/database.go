@@ -201,6 +201,7 @@ func ensureMailAccountUserEmailIndex(db *gorm.DB) {
 // 在某些场景下未能补齐这些列，导致运行期出现 "no such column: vapid_private_key" 错误。
 // 此处显式 ALTER TABLE 补齐，使老库在重启后自愈，避免在 EnsureVAPIDKeys 中每次都重新生成密钥。
 func ensureAppConfigColumns(db *gorm.DB) {
+	// 主列：VAPID 密钥（正确 snake_case 命名，与模型显式 column 标签一致）
 	columns := []string{"vapid_public_key", "vapid_private_key"}
 	for _, col := range columns {
 		var cnt int64
@@ -212,6 +213,24 @@ func ensureAppConfigColumns(db *gorm.DB) {
 			log.Printf("⚠️  [迁移] 为 app_configs 表补充 %s 列失败: %v", col, err)
 		} else {
 			log.Printf("✅ [迁移] 已为 app_configs 表补充 %s 列", col)
+		}
+	}
+
+	// 清理旧版 AutoMigrate 误生成的孤儿列 v_api_d_public_key / v_api_d_private_key。
+	// GORM 曾把 VAPIDPublicKey 错误转换为 v_api_d_public_key，这些列从未被真正读写
+	// （写入走的是正确的 vapid_public_key 列），属于无用的历史产物，删除以免混淆。
+	// 注意：SQLite >= 3.35 才支持 ALTER TABLE ... DROP COLUMN，旧版本会报错，此处忽略。
+	orphans := []string{"v_api_d_public_key", "v_api_d_private_key"}
+	for _, col := range orphans {
+		var cnt int64
+		db.Raw(fmt.Sprintf("SELECT count(*) FROM pragma_table_info('app_configs') WHERE name = '%s'", col)).Scan(&cnt)
+		if cnt == 0 {
+			continue // 列不存在，跳过
+		}
+		if err := db.Exec(fmt.Sprintf("ALTER TABLE app_configs DROP COLUMN %s", col)).Error; err != nil {
+			log.Printf("⚠️  [迁移] 删除孤儿列 %s 失败（可忽略）: %v", col, err)
+		} else {
+			log.Printf("🧹 [迁移] 已删除孤儿列 %s", col)
 		}
 	}
 }
