@@ -121,7 +121,12 @@ func migrateUserOwnership(db *gorm.DB) {
 	if adminID == 0 {
 		return
 	}
-	db.Exec("UPDATE users SET role = ? WHERE id = ? AND (role IS NULL OR role = '')", models.RoleAdmin, adminID)
+	// 存量（老版本单用户）库：users 表新增 role 列时，老用户的 role 会被填充为
+	// 默认值 'user'（既非 NULL 也非空串），原条件 "role IS NULL OR role = ''" 永远
+	// 不成立，导致首用户无法被提升为管理员，设置页也就看不到用户管理入口。
+	// 此处改为：只要该用户还不是 admin 就提升为 admin（对已是 admin 的幂等），
+	// 保证存量部署更新后首个注册用户被正确识别为管理员。
+	db.Exec("UPDATE users SET role = ? WHERE id = ? AND COALESCE(role, '') != ?", models.RoleAdmin, adminID, models.RoleAdmin)
 
 	// 2. 邮箱账号归属管理员（user_id=0 视为历史数据）
 	db.Exec("UPDATE mail_accounts SET user_id = ? WHERE user_id = 0", adminID)
