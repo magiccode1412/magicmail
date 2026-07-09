@@ -550,8 +550,7 @@ function handleDocumentClick(e) {
 }
 
 onActivated(() => {
-  // 从缓存恢复时重置为收件箱并刷新列表数据
-  mailStore.setFilter('folder', 'inbox')
+  // 从缓存恢复时刷新列表数据（保留当前页码与筛选条件，避免被重置到第 1 页）
   mailStore.fetchMails(mailStore.currentPage)
   mailStore.fetchStats()
   startRefreshTimer()

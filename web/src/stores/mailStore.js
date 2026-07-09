@@ -62,6 +62,16 @@ export const useMailStore = defineStore('mail', () => {
     }
   }
 
+  // --- 与服务器对账：操作后刷新列表与统计，确保 UI 与最新状态一致（无需手动刷新）---
+  async function reconcile() {
+    try {
+      await fetchMails(currentPage.value)
+      await fetchStats()
+    } catch (e) {
+      console.error('[mailStore] 操作后对账失败:', e.message)
+    }
+  }
+
   // --- 加载邮件详情 ---
   async function fetchMailDetail(id) {
     try {
@@ -70,7 +80,9 @@ export const useMailStore = defineStore('mail', () => {
       
       // 自动标记已读（如果未读）
       if (!mail.is_read) {
-        markAsRead(id, true)
+        await markAsRead(id, true)
+        // 与服务器对账，确保返回列表时该邮件已为已读状态
+        await fetchMails(currentPage.value)
       }
       
       return mail
@@ -121,6 +133,8 @@ export const useMailStore = defineStore('mail', () => {
       if (deletedMail && !deletedMail.is_read) {
         stats.value = { ...stats.value, unread: Math.max(0, (stats.value.unread || 0) - 1) }
       }
+      // 与服务器对账，确保列表即时同步（替代手动刷新）
+      reconcile()
       return res
     } catch (e) {
       console.error('[mailStore] 删除邮件失败:', e.message)
@@ -141,6 +155,8 @@ export const useMailStore = defineStore('mail', () => {
       total.value -= res.deleted || ids.length
       // 更新统计信息（未读计数等）
       stats.value = { ...stats.value, unread: Math.max(0, (stats.value.unread || 0) - unreadDeleted) }
+      // 与服务器对账，确保列表即时同步（替代手动刷新）
+      reconcile()
       return res
     } catch (e) {
       console.error('[mailStore] 批量删除失败:', e.message)
@@ -179,6 +195,9 @@ export const useMailStore = defineStore('mail', () => {
       if (unreadDelta !== 0) {
         stats.value = { ...stats.value, unread: Math.max(0, (stats.value.unread || 0) + unreadDelta) }
       }
+
+      // 与服务器对账，确保列表即时同步（替代手动刷新）
+      reconcile()
 
       return { updated: targetMails.length }
     } catch (e) {
@@ -232,8 +251,8 @@ export const useMailStore = defineStore('mail', () => {
 
     const res = await apiMarkAllAsRead(params)
 
-    // 乐观更新：当前页所有邮件标记为已读
-    mails.value.forEach(mail => { mail.is_read = true })
+    // 与服务器对账，确保列表即时同步（替代手动刷新）
+    reconcile()
 
     return res
   }

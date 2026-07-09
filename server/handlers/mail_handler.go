@@ -8,9 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"magicmail/services"
 	"magicmail/models"
+	"magicmail/services"
 	"magicmail/smtp"
+	"magicmail/sse"
 	"strconv"
 	"strings"
 	"time"
@@ -45,8 +46,8 @@ func NewMailHandler(svc *services.MailService) *MailHandler {
 func (h *MailHandler) List(c *fiber.Ctx) error {
 	filter := models.MailListFilter{
 		Page:      1,
-		PageSize: 20,
-		SortBy:   "sent_at",
+		PageSize:  20,
+		SortBy:    "sent_at",
 		SortOrder: "desc",
 	}
 
@@ -94,8 +95,8 @@ func (h *MailHandler) List(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"data":       mails,
-		"total":      total,
+		"data":      mails,
+		"total":     total,
 		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	})
@@ -147,6 +148,9 @@ func (h *MailHandler) MarkAsRead(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
+
+	// 推送实时事件，触发客户端自动刷新列表（无需手动刷新）
+	sse.PublishMailSynced(getUserID(c), 0, "")
 
 	status := "未读"
 	if body.IsRead {
@@ -211,6 +215,9 @@ func (h *MailHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "删除失败"})
 	}
 
+	// 推送实时事件，触发客户端自动刷新列表（无需手动刷新）
+	sse.PublishMailSynced(getUserID(c), 0, "")
+
 	return c.JSON(result)
 }
 
@@ -228,12 +235,15 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 
 	result := h.service.BatchDelete(req.IDs, getUserID(c))
 
+	// 推送实时事件，触发客户端自动刷新列表
+	sse.PublishMailSynced(getUserID(c), 0, "")
+
 	return c.JSON(fiber.Map{
-		"success":           result.Success,
-		"deleted":           result.Deleted,
-		"failed":            result.Failed,
+		"success":            result.Success,
+		"deleted":            result.Deleted,
+		"failed":             result.Failed,
 		"server_sync_result": result.ServerSyncResult,
-		"message":           fmt.Sprintf("已删除 %d 封邮件", result.Deleted),
+		"message":            fmt.Sprintf("已删除 %d 封邮件", result.Deleted),
 	})
 }
 
@@ -251,6 +261,9 @@ func (h *MailHandler) BatchMarkAsRead(c *fiber.Ctx) error {
 	}
 
 	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead, getUserID(c))
+
+	// 推送实时事件，触发客户端自动刷新列表
+	sse.PublishMailSynced(getUserID(c), 0, "")
 
 	status := "未读"
 	if req.IsRead {
@@ -295,6 +308,9 @@ func (h *MailHandler) MarkAllAsRead(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
+
+	// 推送实时事件，触发客户端自动刷新列表
+	sse.PublishMailSynced(getUserID(c), 0, "")
 
 	return c.JSON(fiber.Map{
 		"success": true,
@@ -374,16 +390,16 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 	ccJSON, _ := json.Marshal(req.Cc)
 
 	sentMail := models.Mail{
-		AccountID:  req.AccountID,
-		MessageID:  result.MessageID,
-		Folder:     "sent",
-		From:       senderEmail,
-		To:         string(toJSON),
-		Cc:         string(ccJSON),
-		Subject:    req.Subject,
-		TextBody:   sql.NullString{String: req.Body, Valid: req.Body != ""},
-		SentAt:     time.Now(),
-		IsRead:     true,
+		AccountID: req.AccountID,
+		MessageID: result.MessageID,
+		Folder:    "sent",
+		From:      senderEmail,
+		To:        string(toJSON),
+		Cc:        string(ccJSON),
+		Subject:   req.Subject,
+		TextBody:  sql.NullString{String: req.Body, Valid: req.Body != ""},
+		SentAt:    time.Now(),
+		IsRead:    true,
 	}
 	if req.HTMLBody != "" {
 		sentMail.HTMLBody = sql.NullString{String: req.HTMLBody, Valid: true}
