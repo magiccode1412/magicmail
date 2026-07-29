@@ -4,6 +4,8 @@
 -->
 <template>
   <div class="mail-list-view">
+    <!-- 顶部功能区（进入多选模式后吸顶固定，不随列表滚动） -->
+    <div class="mail-list-header" :class="{ 'is-sticky': selectable }">
     <!-- 批量操作工具栏 -->
     <transition name="fade">
       <div v-if="selectable" class="batch-bar">
@@ -52,7 +54,7 @@
           @click="handleFilter(tab.key)"
         >
           {{ tab.label }}
-          <span v-if="tab.count !== undefined" class="tab-count">{{ tab.count }}</span>
+          <span v-if="tab.count > 0" class="tab-count">{{ tab.count }}</span>
         </button>
       </div>
 
@@ -147,6 +149,7 @@
           </transition>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- 邮件列表区域 -->
@@ -589,6 +592,25 @@ function stopRefreshTimer() {
   flex-direction: column;
   gap: var(--space-md);
   min-height: calc(100vh - var(--header-height) - 48px);
+}
+
+/* ---- 顶部功能区包裹层 ---- */
+.mail-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* 进入多选模式后吸顶固定，不随列表滚动 */
+.mail-list-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 与内容区卡片背景一致，避免列表内容在吸顶区下方透出 */
+  background: var(--bg-primary);
+  /* 吸顶时与下方列表留出间距，但不额外撑高整体 */
+  padding-bottom: var(--space-md);
+  margin-bottom: calc(-1 * var(--space-md));
 }
 
 /* ---- 批量操作工具栏 ---- */
