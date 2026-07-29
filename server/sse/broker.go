@@ -34,7 +34,34 @@ type Broker struct {
 	unregister chan string
 	// 全局广播通道
 	broadcast chan *SSEEvent
+
+	// history 保存近期可重放事件，供新连接回放，避免错过已发生的状态变更（P0 第4点）
+	// key 为 userID：0 表示全局广播事件（如 user.*），非 0 为对应用户的私有事件
+	history map[uint][]*SSEEvent
 }
+
+// replayableEvents 标记哪些事件类型值得重放给新连接。
+// 仅包含轻量的"状态变更/控制"类事件；高频且负载大的 mail.received / mail.sent 不重放。
+var replayableEvents = map[string]bool{
+	"mail.synced":          true,
+	"oauth.authorized":     true,
+	"oauth.expired":        true,
+	"account.sync_started": true,
+	"account.sync_done":    true,
+	"account.sync_error":   true,
+	"account.created":      true,
+	"account.updated":      true,
+	"account.deleted":      true,
+	"account.status_changed": true,
+	"account.health":       true,
+	"webhook.delivered":    true,
+	"webhook.failed":       true,
+	"user.created":         true,
+	"user.deleted":         true,
+	"stats.updated":        true,
+}
+
+const historyLimit = 32
 
 // NewBroker 创建新的 SSE Broker
 func NewBroker() *Broker {
@@ -43,6 +70,7 @@ func NewBroker() *Broker {
 		register:   make(chan *Client, 64),
 		unregister: make(chan string, 64),
 		broadcast:  make(chan *SSEEvent, 256),
+		history:    make(map[uint][]*SSEEvent),
 	}
 }
 
@@ -95,6 +123,11 @@ func (b *Broker) run() {
 				}
 			}
 			b.mu.RUnlock()
+
+			// 记录到历史事件（供新连接重放），仅在释放读锁后再取写锁
+			if replayableEvents[event.Event] {
+				b.appendHistory(event)
+			}
 		}
 	}
 }
@@ -129,6 +162,29 @@ func (b *Broker) Publish(eventType string, data interface{}) {
 	case b.broadcast <- event:
 	default:
 	}
+}
+
+// appendHistory 将事件追加到对应用户（或全局）的历史缓冲，超出上限丢弃最旧
+func (b *Broker) appendHistory(event *SSEEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := event.UserID // 0 = 全局广播事件
+	h := b.history[key]
+	h = append(h, event)
+	if len(h) > historyLimit {
+		h = h[len(h)-historyLimit:]
+	}
+	b.history[key] = h
+}
+
+// ReplayHistory 返回某用户（含全局）近期可重放事件快照，供新连接初始化状态
+func (b *Broker) ReplayHistory(userID uint) []*SSEEvent {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	var out []*SSEEvent
+	out = append(out, b.history[0]...)     // 全局广播事件（如 user.*）
+	out = append(out, b.history[userID]...) // 该用户私有事件
+	return out
 }
 
 // PublishToUser 发布事件给指定用户的客户端（按用户隔离）

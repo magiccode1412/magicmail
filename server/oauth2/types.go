@@ -21,6 +21,7 @@ type TokenResponse struct {
 	ExpiresIn    time.Duration `json:"expires_in"`
 	TokenType    string        `json:"token_type"` // 通常为 "Bearer"
 	Scope        string        `json:"scope"`
+	IDToken      string        `json:"id_token"`  // OIDC id_token（Microsoft 等 IdP 返回）
 }
 
 // PendingError 授权待处理错误（用户尚未完成授权）

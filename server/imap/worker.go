@@ -106,7 +106,7 @@ func StopWorkers() {
 }
 
 // StartWorker 为单个邮箱账号启动同步协程
-func (p *WorkerPool) StartWorker(account *models.MailAccount) {
+func (p *WorkerPool) StartWorker(account *models.MailAccount) *AccountWorker {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -125,6 +125,7 @@ func (p *WorkerPool) StartWorker(account *models.MailAccount) {
 	}()
 
 	log.Printf("▶️  Worker 启动: %s (%s)", account.Email, account.Name)
+	return w
 }
 
 // StopWorker 停止指定账号的 Worker
@@ -139,8 +140,12 @@ func (p *WorkerPool) StopWorker(accountID uint) {
 }
 
 // RestartWorker 重启指定账号的 Worker（配置变更后调用）
+// 重启视为一次"用户触发的同步"，完成后推送 account.sync_* 进度事件
 func (p *WorkerPool) RestartWorker(account *models.MailAccount) {
-	p.StartWorker(account)
+	w := p.StartWorker(account)
+	if w != nil {
+		w.manualSync.Store(true)
+	}
 }
 
 // AccountWorker 单个邮箱账号的同步 Worker
@@ -152,6 +157,8 @@ type AccountWorker struct {
 	shutdownCh      chan struct{}
 	stopCh          chan struct{} // 该 Worker 的独立停止通道
 	idleUnsupported bool          // 标记该账号是否不支持IDLE（避免重复尝试）
+	manualSync      atomic.Bool  // 标记本次同步是否由用户手动触发（用于推送同步进度事件）
+	lastStatus      string       // 上一次上报的账号健康状态（用于去重，仅状态变化时推送 account.health）
 }
 
 // NewAccountWorker 创建新的账号 Worker
@@ -243,6 +250,15 @@ func (w *AccountWorker) syncOnce() {
 	}
 	defer func() { <-w.sem }()
 
+	// 本次是否为用户手动触发的同步（用于推送同步进度事件）
+	wasManual := w.manualSync.Swap(false)
+	fail := func(msg string) {
+		w.updateAccountStatus("error", msg)
+		if wasManual {
+			sse.PublishAccountSyncError(w.account.UserID, w.account.ID, w.account.Email, msg)
+		}
+	}
+
 	// 重新从数据库获取最新账号信息（密码可能被更新）
 	var fresh models.MailAccount
 	if err := w.db.First(&fresh, w.account.ID).Error; err != nil {
@@ -254,14 +270,14 @@ func (w *AccountWorker) syncOnce() {
 	// 根据协议创建对应的邮件客户端
 	client, err := NewMailClient(w.account, w.config)
 	if err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
 	}
 	defer client.Close()
 
 	// 认证
 	if err := client.Authenticate(); err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
 	}
 
@@ -283,7 +299,7 @@ func (w *AccountWorker) syncOnce() {
 	}
 
 	if err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
 	}
 
@@ -295,6 +311,10 @@ func (w *AccountWorker) syncOnce() {
 			"status":      "active",
 			"error_msg":   "",
 		})
+
+	if wasManual {
+		sse.PublishAccountSyncDone(w.account.UserID, w.account.ID, w.account.Email, count)
+	}
 
 	if count > 0 {
 		log.Printf("📬 %s 同步完成: 新增 %d 封邮件", w.account.Email, count)
@@ -371,10 +391,11 @@ func (w *AccountWorker) syncOnce() {
 			}, w.account.UserID)
 		}
 
-		// 推送 SSE 实时事件给前端（仅当前用户）
-		sse.PublishMailReceived(w.account.UserID, w.account.ID, w.account.Email, count, mailList)
+	// 推送 SSE 实时事件给前端（仅当前用户）
+	sse.PublishMailReceived(w.account.UserID, w.account.ID, w.account.Email, count, mailList)
+	sse.PublishStatsUpdated(w.account.UserID, w.account.ID, w.account.Email)
 
-		// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖，仅当前用户）
+	// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖，仅当前用户）
 		notifier.SendPushNotification(
 			w.account.UserID,
 			fmt.Sprintf("📧 您有 %d 封新邮件", count),
@@ -558,7 +579,7 @@ func (w *AccountWorker) Stop() {
 	}
 }
 
-// updateAccountStatus 更新账号状态到数据库
+// updateAccountStatus 更新账号状态到数据库，并在状态发生切换时推送 account.health 事件
 func (w *AccountWorker) updateAccountStatus(status, errMsg string) {
 	w.db.Model(&models.MailAccount{}).Where("id = ?", w.account.ID).
 		Updates(map[string]interface{}{
@@ -567,6 +588,12 @@ func (w *AccountWorker) updateAccountStatus(status, errMsg string) {
 		})
 	if status == "error" {
 		log.Printf("❌ 同步错误 (%s): %s", w.account.Email, errMsg)
+	}
+
+	// 仅在健康状态发生切换时推送，避免每次轮询都刷屏（P3-1：账号连接健康实时可见）
+	if w.lastStatus != status {
+		w.lastStatus = status
+		sse.PublishAccountHealth(w.account.UserID, w.account.ID, w.account.Email, status, errMsg)
 	}
 }
 

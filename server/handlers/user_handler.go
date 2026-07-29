@@ -6,6 +6,7 @@ package handlers
 import (
 	"magicmail/models"
 	"magicmail/services"
+	"magicmail/sse"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -46,6 +47,8 @@ func (h *UserHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "创建用户失败", "detail": err.Error()})
 	}
+	// 广播给所有在线管理员，实现多管理员用户列表实时一致
+	sse.PublishUserCreated(user.ID, user.Username)
 	return c.Status(201).JSON(user)
 }
 
@@ -70,6 +73,9 @@ func (h *UserHandler) Delete(c *fiber.Ctx) error {
 		}
 		return c.Status(statusCode).JSON(fiber.Map{"error": msg, "detail": err.Error()})
 	}
+
+	// 广播给所有在线管理员，实现多管理员用户列表实时一致
+	sse.PublishUserDeleted(uint(id))
 
 	return c.SendStatus(204)
 }

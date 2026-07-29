@@ -6,6 +6,7 @@ package handlers
 import (
 	"magicmail/models"
 	"magicmail/oauth2"
+	"magicmail/sse"
 	"magicmail/services"
 	"strconv"
 	"time"
@@ -115,6 +116,7 @@ func (h *AccountHandler) Create(c *fiber.Ctx) error {
 		})
 	}
 
+	sse.PublishAccountCreated(getUserID(c), account.ID, account.Email)
 	return c.Status(201).JSON(account)
 }
 
@@ -150,6 +152,7 @@ func (h *AccountHandler) Update(c *fiber.Ctx) error {
 		})
 	}
 
+	sse.PublishAccountUpdated(getUserID(c), uint(id), account.Email)
 	return c.JSON(account)
 }
 
@@ -172,6 +175,7 @@ func (h *AccountHandler) Delete(c *fiber.Ctx) error {
 		})
 	}
 
+	sse.PublishAccountDeleted(getUserID(c), uint(id))
 	return c.SendStatus(204)
 }
 
@@ -220,10 +224,14 @@ func (h *AccountHandler) TriggerSync(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	err = h.service.TriggerSync(uint(id), getUserID(c))
+	userID := getUserID(c)
+	err = h.service.TriggerSync(uint(id), userID)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"success": false, "message": err.Error()})
 	}
+
+	// 推送同步开始事件，前端实时显示进度
+	sse.PublishAccountSyncStarted(userID, uint(id), "")
 
 	return c.JSON(fiber.Map{
 		"success": true,
@@ -258,6 +266,8 @@ func (h *AccountHandler) ToggleStatus(c *fiber.Ctx) error {
 	if err := h.service.SetStatus(uint(id), req.Status, getUserID(c)); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	sse.PublishAccountStatusChanged(getUserID(c), uint(id), req.Status)
 
 	actionMsg := map[string]string{
 		"active":   "已启用",

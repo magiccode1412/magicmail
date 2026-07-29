@@ -51,6 +51,14 @@ func StreamHandler(c *fiber.Ctx) error {
 		})
 		w.Flush()
 
+		// 重放近期事件，避免新连接错过已发生的状态变更（P0 第4点：Broker 无重放 → 现已补齐）
+		for _, ev := range broker.ReplayHistory(userID) {
+			if err := sendEventWriter(w, ev.Event, ev.Data); err != nil {
+				return
+			}
+			w.Flush()
+		}
+
 		// 保持连接活跃，发送心跳和推送事件
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -182,5 +190,175 @@ func PublishMailSynced(userID, accountID uint, accountEmail string) {
 		"account_id":    accountID,
 		"account_email": accountEmail,
 		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+	PublishStatsUpdated(userID, accountID, accountEmail)
+}
+
+// PublishOAuthAuthorized 发布 OAuth2 设备码授权成功事件（供后端轮询 goroutine 调用，按用户隔离）
+func PublishOAuthAuthorized(userID uint, data fiber.Map) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "oauth.authorized", data)
+}
+
+// PublishOAuthExpired 发布 OAuth2 设备码授权过期/失败事件（按用户隔离）
+func PublishOAuthExpired(userID uint) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "oauth.expired", fiber.Map{
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishAccountSyncStarted 发布账号同步开始事件（供 handler 在用户手动触发同步时调用）
+func PublishAccountSyncStarted(userID, accountID uint, accountEmail string) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "account.sync_started", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishAccountSyncDone 发布账号同步完成事件（供 Worker 调用）
+func PublishAccountSyncDone(userID, accountID uint, accountEmail string, mailCount int) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "account.sync_done", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"mail_count":    mailCount,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishAccountSyncError 发布账号同步失败事件（供 Worker 调用）
+func PublishAccountSyncError(userID, accountID uint, accountEmail, errMsg string) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "account.sync_error", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"error":         errMsg,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishAccountCreated 发布账号创建事件（按用户隔离）
+func PublishAccountCreated(userID, accountID uint, accountEmail string) {
+	publishAccountEvent(userID, "account.created", accountID, accountEmail, "")
+}
+
+// PublishAccountUpdated 发布账号更新事件（按用户隔离）
+func PublishAccountUpdated(userID, accountID uint, accountEmail string) {
+	publishAccountEvent(userID, "account.updated", accountID, accountEmail, "")
+}
+
+// PublishAccountDeleted 发布账号删除事件（按用户隔离）
+func PublishAccountDeleted(userID, accountID uint) {
+	publishAccountEvent(userID, "account.deleted", accountID, "", "")
+}
+
+// PublishAccountStatusChanged 发布账号状态变更事件（按用户隔离）
+func PublishAccountStatusChanged(userID, accountID uint, status string) {
+	publishAccountEvent(userID, "account.status_changed", accountID, "", status)
+}
+
+// publishAccountEvent 账号事件的统一发布实现
+func publishAccountEvent(userID uint, event string, accountID uint, accountEmail, status string) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, event, fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"status":        status,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishWebhookDelivered 发布 Webhook 投递成功事件（供 notifier 调用，按用户隔离）
+func PublishWebhookDelivered(userID, webhookID uint) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "webhook.delivered", fiber.Map{
+		"webhook_id": webhookID,
+		"timestamp":  time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishWebhookFailed 发布 Webhook 投递失败事件（供 notifier 调用，按用户隔离）
+func PublishWebhookFailed(userID, webhookID uint, errMsg string) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "webhook.failed", fiber.Map{
+		"webhook_id": webhookID,
+		"error":      errMsg,
+		"timestamp":  time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishStatsUpdated 发布统计变更事件（供 Worker/Handler 在邮件数据变化时调用，按用户隔离）
+// 前端侧边栏角标等消费此轻量信号以刷新未读计数，避免整列表刷新
+func PublishStatsUpdated(userID, accountID uint, accountEmail string) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "stats.updated", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishAccountHealth 发布账号连接健康状态变化事件（供 Worker 在状态切换时调用，按用户隔离）
+// status 取值："active"（连接正常）/ "error"（同步失败）；前端据此实时提示账号连接异常
+func PublishAccountHealth(userID, accountID uint, accountEmail, status, errMsg string) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "account.health", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"status":        status,
+		"error":         errMsg,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishUserCreated 发布用户创建事件（广播给所有在线管理员，用于多管理员一致性）
+func PublishUserCreated(userID uint, username string) {
+	if GlobalBroker() == nil {
+		return
+	}
+	// 使用 Publish（UserID=0）广播给全部连接
+	GlobalBroker().Publish("user.created", fiber.Map{
+		"user_id":   userID,
+		"username":  username,
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishUserDeleted 发布用户删除事件（广播给所有在线管理员）
+func PublishUserDeleted(userID uint) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().Publish("user.deleted", fiber.Map{
+		"user_id":   userID,
+		"timestamp": time.Now().Format(time.RFC3339),
 	})
 }

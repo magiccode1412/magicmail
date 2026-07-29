@@ -227,6 +227,15 @@ func (s *MailService) MarkAsRead(id uint, isRead bool, userID uint) error {
 		Update("is_read", isRead).Error
 }
 
+// GetMailAccountID 获取指定邮件所属账号 ID，用于 SSE 事件携带账号维度（按用户隔离）
+func (s *MailService) GetMailAccountID(id, userID uint) (uint, error) {
+	var accountID uint
+	err := s.db.Model(&models.Mail{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Select("account_id").Scan(&accountID).Error
+	return accountID, err
+}
+
 // BatchMarkAsReadResult 批量标记已读/未读操作结果
 type BatchMarkAsReadResult struct {
 	Success bool   `json:"success"`

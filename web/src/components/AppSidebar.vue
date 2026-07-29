@@ -172,6 +172,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAccountStore } from '@/stores/accountStore'
 import { useMailStore } from '@/stores/mailStore'
+import { useSSE } from '@/composables/useSSE'
 
 const props = defineProps({
   collapsed: Boolean,
@@ -182,6 +183,13 @@ const emit = defineEmits(['toggle', 'navigate'])
 const route = useRoute()
 const accountStore = useAccountStore()
 const mailStore = useMailStore()
+
+// 统计实时更新：邮件数据变化时刷新侧边栏未读角标（轻量，仅需 fetchStats）
+useSSE({
+  onStatsUpdated() {
+    mailStore.fetchStats()
+  },
+})
 
 const mobileOpen = ref(false)
 const isMobile = ref(window.innerWidth <= 1024)

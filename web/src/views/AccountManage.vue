@@ -84,8 +84,9 @@
               <path d="M9.5 1l3.5 3.5-8 8H1.5V9l8-8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
             </svg>
           </button>
-          <button class="btn btn-ghost btn-sm" @click="handleSync(acc.id)" title="立即同步">
-            <svg width="16" height="16" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M882.548896 835.161121c-5.650697 0-10.233062-4.582365-10.233062-10.233062L872.315834 615.20964l-192.749956 0c-5.650697 0-10.233062-4.582365-10.233062-10.233062s4.582365-10.233062 10.233062-10.233062l202.983018 0c5.650697 0 10.233062 4.582365 10.233062 10.233062l0 219.950458C892.781958 830.578756 888.200616 835.161121 882.548896 835.161121z" fill="currentColor" stroke="currentColor" stroke-width="28"/><path d="M344.436168 415.054017 141.450081 415.054017c-5.650697 0-10.233062-4.581342-10.233062-10.233062l0-219.949434c0-5.65172 4.582365-10.233062 10.233062-10.233062 5.65172 0 10.233062 4.581342 10.233062 10.233062l0 209.716372 192.753025 0c5.650697 0 10.233062 4.581342 10.233062 10.233062S350.086865 415.054017 344.436168 415.054017z" fill="currentColor" stroke="currentColor" stroke-width="28"/><path d="M510.329453 894.456598c-91.735307 0-180.443675-32.984229-249.785973-92.877317-68.622914-59.270918-114.077152-140.994198-127.988999-230.118028-0.871857-5.583159 2.949168-10.816347 8.532327-11.689227 5.584182-0.870834 10.81737 2.948145 11.689227 8.532327 27.650757 177.12714 178.023556 305.686121 357.553419 305.686121 160.446225 0 299.604612-103.051027 346.276584-256.429277 1.645476-5.40715 7.361665-8.460696 12.769838-6.810103 5.40715 1.644453 8.456602 7.361665 6.810103 12.768815-11.791557 38.754652-29.644157 75.261101-53.058426 108.503203-23.093974 32.788777-51.056839 61.646012-83.10986 85.769432C673.378969 867.946828 593.954035 894.456598 510.329453 894.456598zM874.22123 443.99721c-4.723581 0-8.969279-3.289929-9.997702-8.095375C828.795645 270.243911 679.961898 150.009526 510.329453 150.009526c-156.105361 0-294.118668 99.457176-343.4277 247.487627-1.785669 5.363148-7.581676 8.263198-12.941753 6.474458-5.362124-1.785669-8.261151-7.580652-6.474458-12.941753 12.517081-37.579897 30.786167-72.894194 54.296627-104.963587 23.229051-31.68463 51.072189-59.525722 82.756819-82.750679 65.840544-48.26219 143.918807-73.771167 225.791489-73.771167 44.900629 0 88.872097 7.713682 130.692574 22.926152 40.410362 14.699794 77.849042 36.023448 111.276363 63.378469 67.061348 54.880935 113.917516 131.511219 131.939985 215.774345 1.180895 5.526877-2.340301 10.964726-7.867178 12.146645C875.649765 443.922509 874.929358 443.99721 874.22123 443.99721z" fill="currentColor" stroke="currentColor" stroke-width="60"/></svg>
+          <button class="btn btn-ghost btn-sm" :disabled="syncingIds.has(acc.id)" @click="handleSync(acc.id)" title="立即同步">
+            <span v-if="syncingIds.has(acc.id)" class="spinner-xs"></span>
+            <svg v-else width="16" height="16" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg"><path d="M882.548896 835.161121c-5.650697 0-10.233062-4.582365-10.233062-10.233062L872.315834 615.20964l-192.749956 0c-5.650697 0-10.233062-4.582365-10.233062-10.233062s4.582365-10.233062 10.233062-10.233062l202.983018 0c5.650697 0 10.233062 4.582365 10.233062 10.233062l0 219.950458C892.781958 830.578756 888.200616 835.161121 882.548896 835.161121z" fill="currentColor" stroke="currentColor" stroke-width="28"/><path d="M344.436168 415.054017 141.450081 415.054017c-5.650697 0-10.233062-4.581342-10.233062-10.233062l0-219.949434c0-5.65172 4.582365-10.233062 10.233062-10.233062 5.65172 0 10.233062 4.581342 10.233062 10.233062l0 209.716372 192.753025 0c5.650697 0 10.233062 4.581342 10.233062 10.233062S350.086865 415.054017 344.436168 415.054017z" fill="currentColor" stroke="currentColor" stroke-width="28"/><path d="M510.329453 894.456598c-91.735307 0-180.443675-32.984229-249.785973-92.877317-68.622914-59.270918-114.077152-140.994198-127.988999-230.118028-0.871857-5.583159 2.949168-10.816347 8.532327-11.689227 5.584182-0.870834 10.81737 2.948145 11.689227 8.532327 27.650757 177.12714 178.023556 305.686121 357.553419 305.686121 160.446225 0 299.604612-103.051027 346.276584-256.429277 1.645476-5.40715 7.361665-8.460696 12.769838-6.810103 5.40715 1.644453 8.456602 7.361665 6.810103 12.768815-11.791557 38.754652-29.644157 75.261101-53.058426 108.503203-23.093974 32.788777-51.056839 61.646012-83.10986 85.769432C673.378969 867.946828 593.954035 894.456598 510.329453 894.456598zM874.22123 443.99721c-4.723581 0-8.969279-3.289929-9.997702-8.095375C828.795645 270.243911 679.961898 150.009526 510.329453 150.009526c-156.105361 0-294.118668 99.457176-343.4277 247.487627-1.785669 5.363148-7.581676 8.263198-12.941753 6.474458-5.362124-1.785669-8.261151-7.580652-6.474458-12.941753 12.517081-37.579897 30.786167-72.894194 54.296627-104.963587 23.229051-31.68463 51.072189-59.525722 82.756819-82.750679 65.840544-48.26219 143.918807-73.771167 225.791489-73.771167 44.900629 0 88.872097 7.713682 130.692574 22.926152 40.410362 14.699794 77.849042 36.023448 111.276363 63.378469 67.061348 54.880935 113.917516 131.511219 131.939985 215.774345 1.180895 5.526877-2.340301 10.964726-7.867178 12.146645C875.649765 443.922509 874.929358 443.99721 874.22123 443.99721z" fill="currentColor" stroke="currentColor" stroke-width="60"/></svg>
           </button>
           <button class="btn btn-ghost btn-sm danger-hover" @click="handleDelete(acc)" title="删除">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -123,9 +124,10 @@
 
 <script setup>
 defineOptions({ name: 'AccountManage' })
-import { ref, computed, onMounted, onActivated } from 'vue'
+import { ref, computed, reactive, onMounted, onActivated } from 'vue'
 import { useAccountStore } from '@/stores/accountStore'
 import { triggerSync } from '@/api/account'
+import { useSSE } from '@/composables/useSSE'
 import { useToast } from '@/composables/useToast'
 import EmptyState from '../components/EmptyState.vue'
 import AccountForm from '../components/AccountForm.vue'
@@ -138,6 +140,38 @@ const accountStore = useAccountStore()
 
 const accounts = computed(() => accountStore.accounts)
 const loading = computed(() => accountStore.loading)
+
+// 正在同步中的账号集合（由 SSE 的 account.sync_* 事件驱动，实时反馈进度）
+const syncingIds = reactive(new Set())
+
+// 监听账号同步进度（替代手动同步后无反馈的问题）
+useSSE({
+  onAccountSyncStarted(data) {
+    if (data.account_id) syncingIds.add(data.account_id)
+  },
+  onAccountSyncDone(data) {
+    if (data.account_id) syncingIds.delete(data.account_id)
+    accountStore.fetchAccounts()
+    toast.success(data.mail_count > 0 ? `同步完成，新增 ${data.mail_count} 封邮件` : '同步完成')
+  },
+  onAccountSyncError(data) {
+    if (data.account_id) syncingIds.delete(data.account_id)
+    accountStore.fetchAccounts()
+    toast.error('同步失败: ' + (data.error || '未知错误'))
+  },
+  // 账号生命周期：多标签页/多端实时同步账号列表
+  onAccountCreated() { accountStore.fetchAccounts() },
+  onAccountUpdated() { accountStore.fetchAccounts() },
+  onAccountDeleted() { accountStore.fetchAccounts() },
+  onAccountStatusChanged() { accountStore.fetchAccounts() },
+  // 账号连接健康状态变化（Worker 推送，实时提示连接异常）
+  onAccountHealth(data) {
+    accountStore.fetchAccounts()
+    if (data.status === 'error') {
+      toast.error(`账号连接异常 (${data.account_email || ''}): ${data.error || '未知错误'}`)
+    }
+  },
+})
 
 const showForm = ref(false)
 const editingAccount = ref(null)
@@ -172,7 +206,7 @@ function onSaved() {
 async function handleSync(id) {
   try {
     await triggerSync(id)
-    toast.success('已触发后台同步任务')
+    // 触发后由 SSE 的 account.sync_started/done/error 实时反馈进度
   } catch (e) {
     toast.error('触发失败: ' + e.message)
   }

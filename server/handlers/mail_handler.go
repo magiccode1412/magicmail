@@ -150,8 +150,9 @@ func (h *MailHandler) MarkAsRead(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
 
-	// 推送实时事件，触发客户端自动刷新列表（无需手动刷新）
-	sse.PublishMailSynced(getUserID(c), 0, "")
+	// 推送实时事件，触发客户端自动刷新列表（携带账号维度，便于前端按账号过滤）
+	accountID, _ := h.service.GetMailAccountID(uint(id), getUserID(c))
+	sse.PublishMailSynced(getUserID(c), accountID, "")
 
 	status := "未读"
 	if body.IsRead {
@@ -211,13 +212,15 @@ func (h *MailHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
+	// 先获取账号维度（删除后再查将查不到），用于 SSE 事件携带
+	accountID, _ := h.service.GetMailAccountID(uint(id), getUserID(c))
 	result := h.service.Delete(uint(id), getUserID(c))
 	if !result.Success {
 		return c.Status(500).JSON(fiber.Map{"error": "删除失败"})
 	}
 
-	// 推送实时事件，触发客户端自动刷新列表（无需手动刷新）
-	sse.PublishMailSynced(getUserID(c), 0, "")
+	// 推送实时事件，触发客户端自动刷新列表（携带账号维度）
+	sse.PublishMailSynced(getUserID(c), accountID, "")
 
 	return c.JSON(result)
 }
@@ -310,8 +313,8 @@ func (h *MailHandler) MarkAllAsRead(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
 
-	// 推送实时事件，触发客户端自动刷新列表
-	sse.PublishMailSynced(getUserID(c), 0, "")
+	// 推送实时事件，触发客户端自动刷新列表（携带账号维度）
+	sse.PublishMailSynced(getUserID(c), body.AccountID, "")
 
 	return c.JSON(fiber.Map{
 		"success": true,

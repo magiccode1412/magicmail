@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"magicmail/sse"
+
 	"gorm.io/gorm"
 )
 
@@ -78,6 +80,14 @@ func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}, user
 				"last_trigger_at": now,
 				"error_msg":      errMsg,
 			})
+
+			// 实时推送 Webhook 投递结果（按用户隔离，供设置页即时刷新状态）
+			if result.Success {
+				sse.PublishWebhookDelivered(userID, hook.ID)
+			} else {
+				sse.PublishWebhookFailed(userID, hook.ID, errMsg)
+			}
+
 			log.Printf("[Webhook] %s -> %s (%dms) %s%s", event, hook.URL, result.Duration, status, func() string {
 			if status == "error" && result.ErrorMsg != "" {
 				return " | " + result.ErrorMsg

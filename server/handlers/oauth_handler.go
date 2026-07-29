@@ -5,9 +5,11 @@ package handlers
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"magicmail/oauth2"
+	"magicmail/sse"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -20,6 +22,62 @@ type OAuth2Handler struct{}
 // NewOAuth2Handler 创建 OAuth2 Handler
 func NewOAuth2Handler() *OAuth2Handler {
 	return &OAuth2Handler{}
+}
+
+// oauthPollerCancel 记录每个用户进行中的设备码轮询，用于去重与取消（避免重复轮询 IdP）
+var oauthPollerCancel sync.Map // userID(uint) -> context.CancelFunc
+
+// startOAuthPoller 在后端持续轮询 IdP，授权成功/过期时通过 SSE 推送，替代前端 HTTP 轮询
+func startOAuthPoller(userID uint, provider oauth2.OAuth2Provider, clientID, deviceCode string, interval, expiresIn time.Duration) {
+	// 取消同一用户已有轮询（防止重复发起导致多次推送）
+	if old, ok := oauthPollerCancel.Load(userID); ok {
+		if cancel, ok := old.(context.CancelFunc); ok {
+			cancel()
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	oauthPollerCancel.Store(userID, cancel)
+
+	go func() {
+		defer oauthPollerCancel.Delete(userID)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		deadline := time.Now().Add(expiresIn)
+
+		for {
+			if time.Now().After(deadline) {
+				sse.PublishOAuthExpired(userID)
+				return
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			tokenResp, err := provider.PollToken(ctx, clientID, deviceCode)
+			if err != nil {
+				if oauth2.IsPending(err) {
+					continue // 用户尚未完成授权，继续轮询
+				}
+				// 其它错误（含过期/失败）一律视为授权失败，通知前端
+				sse.PublishOAuthExpired(userID)
+				return
+			}
+
+			email := oauth2.ExtractEmailFromIDToken(tokenResp.IDToken)
+			sse.PublishOAuthAuthorized(userID, fiber.Map{
+				"email":            email,
+				"refresh_token":    tokenResp.RefreshToken,
+				"expires_in":       int(tokenResp.ExpiresIn.Seconds()),
+				"token_expires_at": time.Now().Add(tokenResp.ExpiresIn).Format(timeFormatRFC3339),
+			})
+			return
+		}
+	}()
 }
 
 // DeviceCodeRequest 发起设备码授权请求
@@ -57,6 +115,9 @@ func (h *OAuth2Handler) DeviceCode(c *fiber.Ctx) error {
 			"detail": err.Error(),
 		})
 	}
+
+	// 启动后端轮询：授权完成/过期时通过 SSE 推送，前端不再需要 HTTP 轮询
+	startOAuthPoller(getUserID(c), provider, clientID, resp.DeviceCode, resp.Interval, resp.ExpiresIn)
 
 	return c.JSON(fiber.Map{
 		"success": true,

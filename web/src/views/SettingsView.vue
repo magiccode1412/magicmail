@@ -710,6 +710,15 @@ async function fetchWebhooks() {
   }
 }
 
+// Webhook 投递结果 / 用户变更 实时刷新（SSE 推送，无需手动刷新设置页）
+const webhookSSE = useSSE({
+  onWebhookDelivered() { fetchWebhooks() },
+  onWebhookFailed() { fetchWebhooks() },
+  // 多管理员场景下，其他管理员创建/删除用户时本页实时同步
+  onUserCreated() { fetchUsers() },
+  onUserDeleted() { fetchUsers() },
+})
+
 async function saveHook() {
   if (!form.value.name || !form.value.url) return
   saving.value = true
