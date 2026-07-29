@@ -56,8 +56,9 @@
         <input v-model="localForm.name" type="text" class="input" placeholder="如：我的 Outlook 邮箱" />
       </div>
       <div class="form-group">
-        <label class="form-label">邮箱地址 <span class="required">*</span></label>
+        <label class="form-label">邮箱地址 <span class="optional">（可选）</span></label>
         <input v-model="localForm.email" type="email" class="input" placeholder="your@email.com" />
+        <p class="form-hint text-muted">完成授权后将自动获取，也可在此填写以预填微软登录页</p>
       </div>
 
       <!-- OAuth2 授权区域 -->
@@ -211,7 +212,7 @@ const canProceedSimple = computed(() =>
   localForm.name && localForm.email && localForm.password
 )
 const canProceedOAuth2 = computed(() =>
-  localForm.name && localForm.email && (localForm.refresh_token || localForm.password)
+  localForm.name && (localForm.refresh_token || localForm.password)
 )
 const canProceedManual = computed(() =>
   localForm.name && localForm.host && localForm.username && localForm.password
@@ -226,6 +227,10 @@ function handleNext() {
 function onAuthorized(tokenData) {
   // 先将当前已填写的本地表单数据同步到父组件 formData，防止被后续 watch 覆盖
   Object.assign(props.formData, localForm)
+  // 授权成功且用户尚未填写邮箱时，自动从授权结果回填邮箱
+  if (!localForm.email && tokenData.email) {
+    localForm.email = tokenData.email
+  }
   emit('oauth2Authorized', tokenData)
 }
 </script>
@@ -268,6 +273,7 @@ function onAuthorized(tokenData) {
   color: var(--text-secondary);
 }
 .required { color: var(--error); }
+.optional { color: var(--text-tertiary); font-weight: var(--font-weight-normal); font-size: var(--font-size-xs); }
 
 .input {
   padding: 10px 14px;

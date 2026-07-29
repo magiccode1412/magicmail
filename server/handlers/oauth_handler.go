@@ -50,7 +50,7 @@ func (h *OAuth2Handler) DeviceCode(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	resp, err := provider.GetDeviceCode(context.Background(), clientID)
+	resp, err := provider.GetDeviceCode(context.Background(), clientID, req.Email)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取设备码失败",
@@ -118,6 +118,9 @@ func (h *OAuth2Handler) PollToken(c *fiber.Ctx) error {
 	now := timeNow()
 	expiresAt := now.Add(tokenResp.ExpiresIn)
 
+	// 从 id_token 解析用户邮箱（OAuth2 授权成功后即可自动获取，无需用户预填）
+	email := oauth2.ExtractEmailFromIDToken(tokenResp.IDToken)
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"pending": false,
@@ -126,6 +129,7 @@ func (h *OAuth2Handler) PollToken(c *fiber.Ctx) error {
 			"refresh_token":    tokenResp.RefreshToken,
 			"expires_in":       int(tokenResp.ExpiresIn.Seconds()),
 			"token_expires_at": expiresAt.Format(timeFormatRFC3339),
+			"email":            email,
 		},
 	})
 }

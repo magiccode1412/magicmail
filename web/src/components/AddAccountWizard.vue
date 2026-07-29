@@ -130,6 +130,10 @@ function onOAuth2Authorized(tokenData) {
   formData.oauth_provider = tokenData.provider
   formData.refresh_token = tokenData.refresh_token
   formData.token_expires_at = tokenData.token_expires_at
+  // 授权成功时后端会回传邮箱（从 id_token 解析），自动填充
+  if (tokenData.email) {
+    formData.email = tokenData.email
+  }
 }
 
 async function handleComplete() {
