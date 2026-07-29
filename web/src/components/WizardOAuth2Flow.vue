@@ -227,7 +227,7 @@ watch(() => props.providerName, () => {
   color: var(--primary-500);
   flex-shrink: 0;
   padding: 8px;
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-50);
   border-radius: var(--radius-md);
 }
 .prompt-text {
@@ -247,8 +247,8 @@ watch(() => props.providerName, () => {
 .btn-oauth2-start {
   width: 100%;
   justify-content: center;
-  background: linear-gradient(135deg, #6366F1, #8B5CF6);
-  color: white;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: var(--text-on-primary);
   border: none;
   padding: 10px var(--space-lg);
   border-radius: var(--radius-md);
@@ -265,7 +265,7 @@ watch(() => props.providerName, () => {
 .btn-oauth2-start:hover {
   opacity: 0.92;
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 16px var(--shadow-glow);
 }
 
 /* ---- 授权面板 ---- */
@@ -273,7 +273,7 @@ watch(() => props.providerName, () => {
   border: 1px solid var(--primary-200);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  background: rgba(99, 102, 241, 0.03);
+  background: var(--primary-50);
   animation: panel-in 0.3s ease;
 }
 @keyframes panel-in {
@@ -395,7 +395,7 @@ watch(() => props.providerName, () => {
   left: 0;
   top: 0;
   height: 100%;
-  background: linear-gradient(90deg, #6366F1, #A78BFA);
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-400));
   border-radius: 3px;
   transition: width 1s linear;
 }
@@ -423,8 +423,8 @@ watch(() => props.providerName, () => {
 
 /* 成功/错误 */
 .flow-success { padding: var(--space-xl) 0; }
-.success-icon { color: #10B981; }
-.flow-success strong { color: #10B981; font-size: var(--font-size-base); }
+.success-icon { color: var(--success); }
+.flow-success strong { color: var(--success); font-size: var(--font-size-base); }
 .flow-success p { color: var(--text-secondary); font-size: var(--font-size-sm); }
 
 .flow-error { padding: var(--space-xl) 0; }

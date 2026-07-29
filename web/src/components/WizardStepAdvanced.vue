@@ -219,7 +219,7 @@ const syncModes = [
   outline: none;
   transition: border-color 0.2s;
 }
-.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08); }
+.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px var(--mail-unread-bg, var(--primary-100)); }
 .input::placeholder { color: var(--text-tertiary); opacity: 0.6; }
 
 .form-row { display: flex; gap: var(--space-md); }
@@ -238,7 +238,7 @@ const syncModes = [
   transition: all 0.2s;
 }
 .radio-option:hover { background: var(--bg-hover); border-color: var(--primary-300); }
-.radio-option.active { border-color: var(--primary-500); background: rgba(99, 102, 241, 0.05); }
+.radio-option.active { border-color: var(--primary-500); background: var(--primary-50); }
 .radio-option span { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--text-primary); }
 .radio-option small { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 
@@ -273,7 +273,7 @@ const syncModes = [
 .toggle-switch input:checked + .toggle-slider { background: var(--primary-500); }
 .toggle-switch input:checked + .toggle-slider::after { transform: translateX(20px); }
 
-/* ---- 底部操作栏 ---- */
+/* ---- 底部操作栏（复用全局主题自适应样式 .btn / .btn-primary / .btn-secondary / .btn-ghost）---- */
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -282,23 +282,6 @@ const syncModes = [
   border-top: 1px solid var(--border-light);
   margin-top: var(--space-sm);
 }
-.btn {
-  padding: 9px 20px;
-  border-radius: var(--radius-md);
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-sm);
-  font-family: inherit;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.btn-primary { background: linear-gradient(135deg, #6366F1, #8B5CF6); color: white; }
-.btn-primary:hover { opacity: 0.92; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25); }
-.btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-color); }
-.btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
-.btn-ghost { background: transparent; color: var(--text-tertiary); border-color: var(--border-color); }
-.btn-ghost:hover { background: var(--bg-hover); color: var(--text-secondary); }
 
 @media (max-width: 480px) {
   .form-row { flex-direction: column; }

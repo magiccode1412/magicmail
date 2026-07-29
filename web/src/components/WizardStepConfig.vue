@@ -44,6 +44,7 @@
       </div>
 
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="$emit('back')">返回</button>
         <button type="button" class="btn btn-primary" @click="handleNext" :disabled="!canProceedSimple">下一步</button>
       </div>
     </div>
@@ -80,6 +81,7 @@
       </details>
 
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="$emit('back')">返回</button>
         <button type="button" class="btn btn-primary" @click="handleNext" :disabled="!canProceedOAuth2">
           下一步
           <ChevronRight :size="16" />
@@ -278,7 +280,7 @@ function onAuthorized(tokenData) {
   transition: border-color 0.2s;
   outline: none;
 }
-.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px var(--mail-unread-bg, var(--primary-100)); }
 .input::placeholder { color: var(--text-tertiary); opacity: 0.7; }
 
 /* ---- 密码字段 ---- */
@@ -328,10 +330,10 @@ function onAuthorized(tokenData) {
   font-size: var(--font-size-xs);
   margin-top: -2px;
 }
-.help-text { color: #B45309; line-height: 1.5; }
+.help-text { color: var(--warning); line-height: 1.5; }
 .text-muted { color: var(--text-tertiary); }
 
-/* ---- 操作按钮 ---- */
+/* ---- 操作按钮（复用全局主题自适应样式 .btn / .btn-primary / .btn-secondary）---- */
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -339,25 +341,6 @@ function onAuthorized(tokenData) {
   padding-top: var(--space-sm);
   margin-top: var(--space-xs);
 }
-
-.btn {
-  padding: 9px 20px;
-  border-radius: var(--radius-md);
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-sm);
-  font-family: inherit;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.btn-primary { background: linear-gradient(135deg, #6366F1, #8B5CF6); color: white; }
-.btn-primary:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25); }
-.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
-.btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 /* ---- 高级选项折叠 ---- */
 .advanced-section {
