@@ -27,11 +27,9 @@ export function useSSE(options = {}) {
   const eventSource = ref(null)
   const connected = ref(false)
   const connectionMode = ref('unknown') // 'sse' | 'polling' | 'unknown'
-  const reconnectAttempts = ref(0)
-  const maxReconnectAttempts = 5 // 降低重试次数，更快触发 fallback
-  const reconnectDelayBase = 1000 // 基础重连延迟（毫秒）
-  
-  let reconnectTimer = null
+  const errorCount = ref(0)
+  const maxErrorCount = 5 // 连续错误达到上限后触发 fallback
+
   let hasFallenBack = false // 是否已触发回退
   let intentionalClose = false // 是否为预期内的断开（如探测完成后主动关闭）
 
@@ -48,8 +46,7 @@ export function useSSE(options = {}) {
 
     const token = getToken()
     if (!token) {
-      console.warn('[useSSE] 未找到认证 token，延迟连接')
-      setTimeout(connect, 1000)
+      console.warn('[useSSE] 未找到认证 token，跳过 SSE 连接')
       return
     }
 
@@ -64,7 +61,7 @@ export function useSSE(options = {}) {
         const data = JSON.parse(event.data)
         connected.value = true
         connectionMode.value = 'sse'
-        reconnectAttempts.value = 0
+        errorCount.value = 0
 
         if (typeof options.onConnected === 'function') {
           options.onConnected(data)
@@ -101,6 +98,8 @@ export function useSSE(options = {}) {
         // console.log('[useSSE] 💓 心跳', event.data)
       })
 
+      // 断线重连交给浏览器 EventSource 原生机制处理，
+      // onerror 仅负责统计连续失败次数并在达到上限后回退到轮询
       es.onerror = (error) => {
         // 预期内的断开（如探测完成后的主动关闭），静默忽略
         if (intentionalClose) return
@@ -111,21 +110,16 @@ export function useSSE(options = {}) {
           options.onError(error)
         }
 
-        // 检查是否需要触发回退
-        if (reconnectAttempts.value >= maxReconnectAttempts - 1) {
+        errorCount.value++
+
+        // 连续错误达到上限，回退到轮询
+        if (errorCount.value >= maxErrorCount) {
           hasFallenBack = true
           connectionMode.value = 'polling'
           disconnect()
           if (typeof options.onFallback === 'function') {
             options.onFallback()
           }
-          return
-        }
-
-        // 自动重连
-        if (reconnectAttempts.value < maxReconnectAttempts) {
-          scheduleReconnect()
-        } else {
           if (typeof options.onDisconnected === 'function') {
             options.onDisconnected()
           }
@@ -135,37 +129,13 @@ export function useSSE(options = {}) {
       eventSource.value = es
     } catch (e) {
       console.error('[useSSE] 创建 EventSource 失败:', e)
-      
-      if (reconnectAttempts.value < maxReconnectAttempts && !hasFallenBack) {
-        scheduleReconnect()
-      }
     }
-  }
-
-  /**
-   * 安排重连（指数退避策略）
-   */
-  function scheduleReconnect() {
-    reconnectAttempts.value++
-    const delay = Math.min(
-      reconnectDelayBase * Math.pow(2, reconnectAttempts.value - 1),
-      30000 // 最大 30 秒
-    )
-
-    reconnectTimer = setTimeout(() => {
-      connect()
-    }, delay)
   }
 
   /**
    * 断开 SSE 连接
    */
   function disconnect() {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-
     intentionalClose = true // 标记为预期断开
 
     if (eventSource.value) {
@@ -179,7 +149,8 @@ export function useSSE(options = {}) {
    * 手动重新连接
    */
   function reconnect() {
-    reconnectAttempts.value = 0
+    errorCount.value = 0
+    hasFallenBack = false
     disconnect()
     connect()
   }
@@ -198,7 +169,7 @@ export function useSSE(options = {}) {
     eventSource,
     connected,
     connectionMode,
-    reconnectAttempts,
+    errorCount,
     connect,
     disconnect,
     reconnect,

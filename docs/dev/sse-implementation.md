@@ -95,6 +95,15 @@ SSE Broker (发布-订阅)
   sse.PublishMailSynced(accountID, email)                   // Worker 调用
   ```
 
+- **⚠️ 生命周期注意事项（重要）:**
+  fasthttp 的 `SetBodyStreamWriter` 是**异步执行**的：handler 注册 writer 后立即返回，
+  writer 函数在此之后才被 fasthttp 调用。因此：
+  - `broker.Unregister(clientID)` 必须 `defer` 在 **writer 函数内部**，
+    不能 defer 在 handler 函数体里——否则 handler 一返回就会关闭 Events 通道，
+    导致连接刚建立就断开，前端 EventSource 陷入 1~2 秒一次的重连循环。
+  - writer 的 select 循环中需监听 `ctx.Done()`，客户端断开时及时退出并清理，
+    而不是等下一次心跳写入失败（最长 15 秒）才感知。
+
 ---
 
 ### 3. ✅ 集成到现有系统
@@ -130,17 +139,19 @@ sse.PublishMailReceived(w.account.ID, w.account.Email, count, mailList)
 ```javascript
 export function useSSE(options = {}) {
   // 自动管理 EventSource 连接生命周期
-  // 支持指数退避重连 (最多10次, 最大30秒间隔)
-  // 事件回调: onMailReceived, onMailSynced, onConnected, onError
+  // 断线重连由浏览器 EventSource 原生机制处理
+  // 连续错误达到上限 (5 次) 后触发 onFallback 回退到轮询
+  // 事件回调: onMailReceived, onMailSynced, onConnected, onError, onFallback
   
-  return { connected, reconnectAttempts, connect, disconnect, reconnect }
+  return { connected, connectionMode, errorCount, connect, disconnect, reconnect }
 }
 
 // 便捷 Hook（邮件场景）
-export function useMailStream(onUpdate) {
+export function useMailStream(onUpdate, extraOptions = {}) {
   return useSSE({
     onMailReceived: onUpdate,
     onMailSynced: onUpdate,
+    onFallback: extraOptions.onFallback,
   })
 }
 ```
@@ -149,7 +160,9 @@ export function useMailStream(onUpdate) {
 - 组件挂载时自动连接，卸载时自动断开
 - JWT Token 通过 URL 参数传递 (`?token=xxx`)
 - 15 秒心跳保持连接活跃
-- 断线自动重连（指数退避策略）
+- 断线重连交给浏览器 EventSource 原生机制（不叠加自定义重连定时器）
+- 连续错误达到 5 次后自动回退到轮询模式 (`connectionMode = 'polling'`)
+- `reconnect()` 手动重连可从轮询模式恢复 SSE
 
 #### 修改文件: `web/src/views/MailListView.vue`
 
@@ -236,8 +249,8 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 - **非阻塞**: Worker 调用 `Publish()` 不等待投递完成（异步广播）
 
 ### 客户端
-- **重连策略**: 指数退避 (1s → 2s → 4s → ... → 30s)，最多 10 次
-- **备用机制**: 120 秒定时轮询兜底（应对极端网络情况）
+- **重连策略**: 浏览器 EventSource 原生自动重连（单一重连来源，避免多定时器竞速）
+- **回退机制**: 连续 5 次错误后停止 SSE，回退到定时轮询兜底
 
 ---
 

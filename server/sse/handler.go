@@ -34,10 +34,15 @@ func StreamHandler(c *fiber.Ctx) error {
 		userID = uint(v)
 	}
 	client, clientID := broker.Register(userID)
-	defer broker.Unregister(clientID)
 
 	// ⭐ 使用 SetBodyStreamWriter 保持长连接（Fiber SSE 标准写法）
+	// 注意：writer 是在 handler 返回后由 fasthttp 异步执行的，
+	// 因此 Unregister 必须放在 writer 内部，而不能 defer 在 handler 里
+	// （否则 handler 一返回就会关闭 Events 通道，导致连接刚建立就断开）
+	ctx := c.Context()
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer broker.Unregister(clientID)
+
 		// 发送初始连接成功事件
 		sendEventWriter(w, "connected", map[string]interface{}{
 			"client_id":    clientID,
@@ -52,6 +57,10 @@ func StreamHandler(c *fiber.Ctx) error {
 
 		for {
 			select {
+			case <-ctx.Done():
+				// 客户端断开连接，及时退出并清理
+				return
+
 			case event, ok := <-client.Events:
 				if !ok {
 					return
