@@ -43,7 +43,8 @@ func SendMail(account *models.MailAccount, req *SendRequest) (*SendResult, error
 
 	// 构建邮件内容（RFC822 格式）
 	from := account.Email
-	msgBytes := buildMessage(from, req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.HTMLBody)
+	msgID := generateMessageID(from)
+	msgBytes := buildMessage(from, req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.HTMLBody, msgID)
 
 	// 合并所有收件人用于 MAIL FROM 验证
 	recipients := append(req.To, append(req.Cc, req.Bcc...)...)
@@ -74,7 +75,7 @@ func SendMail(account *models.MailAccount, req *SendRequest) (*SendResult, error
 	}
 
 	return &SendResult{
-		MessageID: generateMessageID(from),
+		MessageID: msgID,
 	}, nil
 }
 
@@ -238,7 +239,7 @@ func sanitizeEmailAddr(addr string) string {
 }
 
 // buildMessage 构建 RFC822 格式的原始邮件内容
-func buildMessage(from string, to, cc, bcc []string, subject, textBody, htmlBody string) []byte {
+func buildMessage(from string, to, cc, bcc []string, subject, textBody, htmlBody string, msgID string) []byte {
 	var sb strings.Builder
 	now := time.Now().Format("Mon, 02 Jan 2006 15:04:05 -0700") // RFC1123 格式
 
@@ -271,7 +272,7 @@ func buildMessage(from string, to, cc, bcc []string, subject, textBody, htmlBody
 
 	sb.WriteString(fmt.Sprintf("Subject: =?UTF-8?B?%s?=\r\n", encodeBase64(subject)))
 	sb.WriteString(fmt.Sprintf("Date: %s\r\n", now))
-	sb.WriteString(fmt.Sprintf("Message-ID: <%s@magicmail>\r\n", generateMessageIDShort()))
+	sb.WriteString(fmt.Sprintf("Message-ID: %s\r\n", msgID))
 	sb.WriteString("MIME-Version: 1.0\r\n")
 
 	// --- 正文 ---

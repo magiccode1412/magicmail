@@ -269,16 +269,10 @@ func (w *AccountWorker) syncOnce() {
 	var count int
 	var syncedIDs []uint // 本次同步成功入库的邮件ID（webhook精确推送用）
 	if w.isIMAP() {
-		// IMAP 同步（INBOX + Sent）
+		// IMAP 同步（仅收件箱 INBOX；已发送由应用发送时本地落库，不从邮箱拉取）
 		imapClient := client.(*IMAPClient)
 		fetcher := NewFetcher(w.db, w.config)
 		count, err = fetcher.SyncMailbox(imapClient)
-		if err == nil {
-			// 继续同步已发送文件夹（失败不阻止主流程）
-			if sentCount, sentErr := fetcher.SyncSentMailbox(imapClient); sentErr == nil {
-				count += sentCount
-			}
-		}
 		syncedIDs = fetcher.SyncedMailIDs // IMAP: 从 Fetcher 获取精确ID
 	} else {
 		// POP3 同步

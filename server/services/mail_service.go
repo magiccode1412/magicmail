@@ -28,6 +28,11 @@ func NewMailService(db *gorm.DB, cfg *config.Config) *MailService {
 	return &MailService{db: db, config: cfg}
 }
 
+// GetDB 暴露底层 *gorm.DB（供 handler 层触发 webhook/SSE 等使用）
+func (s *MailService) GetDB() *gorm.DB {
+	return s.db
+}
+
 // List 获取邮件列表（分页、搜索、筛选），按所属用户隔离
 func (s *MailService) List(filter models.MailListFilter, userID uint) ([]models.MailListItem, int64, error) {
 	var mails []models.Mail

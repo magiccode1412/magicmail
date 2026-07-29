@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"magicmail/models"
+	"magicmail/notifier"
 	"magicmail/services"
 	"magicmail/smtp"
 	"magicmail/sse"
@@ -408,6 +409,26 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 		// 保存失败不回滚发送结果，仅记录日志
 		log.Printf("[WARN] 保存已发送邮件记录失败: %v", err)
 	}
+
+	// 触发 mail.sent 事件（webhook + SSE + 推送），与 mail.received 对称
+	sentData := map[string]interface{}{
+		"account_id":    req.AccountID,
+		"account_email": senderEmail,
+		"subject":       req.Subject,
+		"from":          senderEmail,
+		"to":            string(toJSON),
+		"cc":            string(ccJSON),
+		"sent_at":       sentMail.SentAt.Format("2006-01-02 15:04:05"),
+		"message_id":    result.MessageID,
+	}
+	notifier.TriggerByEvent(h.service.GetDB(), "mail.sent", sentData, getUserID(c))
+	sse.PublishMailSent(getUserID(c), req.AccountID, senderEmail, sentData)
+	notifier.SendPushNotification(
+		getUserID(c),
+		"📤 邮件已发送",
+		fmt.Sprintf("主题：%s", req.Subject),
+		map[string]interface{}{"account_id": req.AccountID, "subject": req.Subject},
+	)
 
 	return c.JSON(fiber.Map{
 		"success":   true,

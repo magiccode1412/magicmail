@@ -454,4 +454,17 @@ func cleanupDuplicateMails(db *gorm.DB) {
 	} else {
 		log.Printf("✅ [迁移] 复合唯一索引 idx_mails_account_folder_uid 已就绪")
 	}
+
+	// 步骤5：清理历史上从邮箱同步进来的"已发送"邮件
+	// 现已改为"已发送"仅记录应用发出的邮件（本地落库），不再从邮箱拉取 Sent 文件夹。
+	// 应用发出的邮件 message_uid = 0，因此 message_uid > 0 的记录均为历史同步所得，可安全删除。
+	result = db.Exec(`
+		DELETE FROM mails
+		WHERE folder = 'sent' AND message_uid > 0
+	`)
+	if result.Error != nil {
+		log.Printf("⚠️  [迁移] 清理历史已发送邮件失败: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("🧹 [迁移] 已清理 %d 条历史同步的已发送邮件记录", result.RowsAffected)
+	}
 }

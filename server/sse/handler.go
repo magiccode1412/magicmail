@@ -149,6 +149,20 @@ func PublishMailReceived(userID, accountID uint, accountEmail string, count int,
 	})
 }
 
+// PublishMailSent 发布邮件已发送事件（供 handler 调用，按用户隔离）
+func PublishMailSent(userID, accountID uint, accountEmail string, data map[string]interface{}) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "mail.sent", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"mail":          data,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
 // PublishMailSynced 发布邮件同步完成事件（供 Worker 调用，按用户隔离）
 func PublishMailSynced(userID, accountID uint, accountEmail string) {
 	if GlobalBroker() == nil {
