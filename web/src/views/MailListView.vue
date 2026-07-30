@@ -516,6 +516,11 @@ watch(() => appStore.mailPageSize, (newSize) => {
   }
 })
 
+// 顶部全局搜索框：关键词变化时在当前列表（收件箱）内就地筛选
+watch(() => appStore.searchKeyword, (kw) => {
+  mailStore.setFilter('keyword', kw)
+})
+
 onMounted(async () => {
   // 初始化每页显示数量（从全局设置）
   mailStore.pageSize = appStore.mailPageSize
@@ -530,12 +535,10 @@ onMounted(async () => {
   if (q.keyword) appStore.setSearchKeyword(q.keyword)
   if (q.is_read) activeFilter.value = q.is_read === 'true' ? 'unread' : 'read'
 
-  // 设置默认文件夹为收件箱（不传 folder 时默认 inbox）
-  if (!mailStore.filters.folder || mailStore.filters.folder === '') {
-    mailStore.setFilter('folder', 'inbox')
-  } else {
-    await mailStore.fetchMails(1)
-  }
+  // 设置默认文件夹为收件箱并应用搜索关键词，统一刷新一次
+  mailStore.filters.folder = 'inbox'
+  mailStore.filters.keyword = appStore.searchKeyword
+  await mailStore.fetchMails(1)
 
   // 获取统计信息（用于标签计数）
   mailStore.fetchStats()

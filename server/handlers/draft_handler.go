@@ -45,7 +45,9 @@ func (h *DraftHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	drafts, total, err := h.service.ListDrafts(userID, page, pageSize)
+	keyword := c.Query("keyword")
+
+	drafts, total, err := h.service.ListDrafts(userID, page, pageSize, keyword)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取草稿列表失败",

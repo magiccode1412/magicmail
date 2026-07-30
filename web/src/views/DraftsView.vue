@@ -4,6 +4,8 @@
 -->
 <template>
   <div class="drafts-view">
+    <!-- 顶部功能区（进入多选模式后吸顶固定，不随列表滚动） -->
+    <div class="mail-list-header" :class="{ 'is-sticky': selectable }">
     <!-- 批量操作工具栏 -->
     <transition name="fade">
       <div v-if="selectable" class="batch-bar">
@@ -85,6 +87,7 @@
           </transition>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- 草稿列表区域 -->
@@ -169,15 +172,17 @@
 
 <script setup>
 defineOptions({ name: 'Drafts' })
-import { ref, computed, onMounted, onActivated, onUnmounted, onDeactivated } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onUnmounted, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDrafts, deleteDraft as apiDeleteDraft, batchDeleteDrafts as apiBatchDelete } from '@/api/draft'
+import { useAppStore } from '@/stores/appStore'
 import { useToast } from '@/composables/useToast'
 import Pagination from '../components/Pagination.vue'
 import EmptyState from '../components/EmptyState.vue'
 
 const toast = useToast()
 const router = useRouter()
+const appStore = useAppStore()
 
 // --- 筛选状态 ---
 const activeFilter = ref('all')
@@ -211,8 +216,18 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 
+// 搜索关键词（来自顶部全局搜索框）
+const searchKeyword = ref(appStore.searchKeyword)
+watch(() => appStore.searchKeyword, (kw) => {
+  searchKeyword.value = kw
+  fetchDrafts(1)
+})
+
 // 空状态文案
-const emptyTitle = computed(() => '暂无草稿')
+const emptyTitle = computed(() => {
+  if (searchKeyword.value) return `未找到 "${searchKeyword.value}" 相关草稿`
+  return '暂无草稿'
+})
 const emptyDescription = computed(() => '保存的草稿将显示在这里')
 
 // --- 操作 ---
@@ -335,6 +350,10 @@ async function fetchDrafts(page = 1) {
       sort_order: sortOrder.value,
     }
 
+    if (searchKeyword.value) {
+      params.keyword = searchKeyword.value
+    }
+
     const res = await getDrafts(params)
     drafts.value = res.data || []
     total.value = res.total || 0
@@ -348,6 +367,7 @@ async function fetchDrafts(page = 1) {
 
 // --- 生命周期 ---
 onMounted(async () => {
+  searchKeyword.value = appStore.searchKeyword
   await fetchDrafts(1)
   document.addEventListener('click', handleDocumentClick)
 })
@@ -357,6 +377,7 @@ function handleDocumentClick(e) {
 }
 
 onActivated(() => {
+  searchKeyword.value = appStore.searchKeyword
   fetchDrafts(currentPage.value)
 })
 
@@ -375,6 +396,25 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-md);
   min-height: calc(100vh - var(--header-height) - 48px);
+}
+
+/* ---- 顶部功能区包裹层 ---- */
+.mail-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* 进入多选模式后吸顶固定，不随列表滚动 */
+.mail-list-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 与内容区卡片背景一致，避免列表内容在吸顶区下方透出 */
+  background: var(--bg-primary);
+  /* 吸顶时与下方列表留出间距，但不额外撑高整体 */
+  padding-bottom: var(--space-md);
+  margin-bottom: calc(-1 * var(--space-md));
 }
 
 /* ---- 批量操作工具栏 ---- */

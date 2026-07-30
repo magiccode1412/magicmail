@@ -78,7 +78,7 @@ func (s *DraftService) SaveDraft(userID uint, req *SaveDraftRequest) (*models.Dr
 }
 
 // ListDrafts 获取草稿列表
-func (s *DraftService) ListDrafts(userID uint, page, pageSize int) ([]models.DraftListItem, int64, error) {
+func (s *DraftService) ListDrafts(userID uint, page, pageSize int, keyword string) ([]models.DraftListItem, int64, error) {
 	var total int64
 
 	if page < 1 {
@@ -88,7 +88,13 @@ func (s *DraftService) ListDrafts(userID uint, page, pageSize int) ([]models.Dra
 		pageSize = 20
 	}
 
-	countQuery := s.db.Model(&models.Draft{}).Where("user_id = ?", userID)
+	baseQuery := s.db.Model(&models.Draft{}).Where("user_id = ?", userID)
+	if keyword != "" {
+		kw := "%" + keyword + "%"
+		baseQuery = baseQuery.Where("drafts.subject LIKE ? OR drafts.body LIKE ? OR drafts.`to` LIKE ?", kw, kw, kw)
+	}
+
+	countQuery := baseQuery.Session(&gorm.Session{})
 	countQuery.Count(&total)
 
 	offset := (page - 1) * pageSize
@@ -109,8 +115,7 @@ func (s *DraftService) ListDrafts(userID uint, page, pageSize int) ([]models.Dra
 		" drafts.`to`, drafts.subject, drafts.body," +
 		" drafts.created_at, drafts.updated_at"
 
-	err := s.db.Model(&models.Draft{}).
-		Where("user_id = ?", userID).
+	err := baseQuery.
 		Joins("LEFT JOIN mail_accounts ON drafts.account_id = mail_accounts.id").
 		Select(fields).
 		Order("drafts.updated_at DESC").

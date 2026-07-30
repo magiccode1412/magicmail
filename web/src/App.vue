@@ -120,11 +120,14 @@ function handleNavigate(path) {
 
 // 搜索处理
 function handleSearch(keyword) {
-  if (route.path !== '/mails') {
+  // 更新全局搜索关键词，当前页面会就地响应
+  appStore.setSearchKeyword(keyword)
+  // 仅在非邮件类页面（账号管理、设置、写邮件等）时跳转到收件箱进行搜索；
+  // 收件箱 / 已发送 / 草稿页内直接就地搜索，不再强制跳走
+  const searchablePaths = ['/mails', '/sent', '/drafts']
+  if (!searchablePaths.includes(route.path)) {
     router.push({ path: '/mails', query: { keyword } })
   }
-  // 通过 store 更新搜索关键词（MailListView 会响应）
-  appStore.setSearchKeyword(keyword)
 }
 
 // 刷新处理（根据当前页面执行对应刷新逻辑）
