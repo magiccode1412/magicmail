@@ -144,6 +144,11 @@ func (s *AccountService) Create(req models.AccountRequest, userID uint) (*models
 		Status:         "active",
 	}
 
+	// 邮箱地址为可选项：未填写时复用登录用户名，保证唯一索引与展示、发信 From 均有值
+	if account.Email == "" {
+		account.Email = account.Username
+	}
+
 	if account.Port == 0 {
 		account.Port = models.DefaultPort(account.Protocol)
 	}
@@ -182,9 +187,15 @@ func (s *AccountService) Update(id uint, req models.AccountRequest, userID uint)
 		return nil, err
 	}
 
+	// 邮箱地址为可选项：未填写时复用登录用户名
+	email := req.Email
+	if email == "" {
+		email = req.Username
+	}
+
 	updates := map[string]interface{}{
 		"name":            req.Name,
-		"email":           req.Email,
+		"email":           email,
 		"protocol":        req.Protocol,
 		"imap_host":       req.Host,
 		"port":            req.Port,
@@ -335,6 +346,7 @@ func (s *AccountService) dtoToResponse(dto models.AccountListDTO) models.Account
 		Protocol:       dto.Protocol,
 		ImapHost:       dto.ImapHost,
 		Port:           dto.Port,
+		Mode:           imap.GlobalWorkerMode(dto.ID),
 		SmtpHost:       dto.SmtpHost,
 		SmtpPort:       dto.SmtpPort,
 		Username:       dto.Username,
@@ -365,6 +377,7 @@ func (s *AccountService) toResponse(account models.MailAccount) models.AccountRe
 		Protocol:     account.Protocol,
 		ImapHost:     account.ImapHost,
 		Port:         account.Port,
+		Mode:         imap.GlobalWorkerMode(account.ID),
 		SmtpHost:     account.SmtpHost,
 		SmtpPort:     account.SmtpPort,
 		Username:     account.Username,

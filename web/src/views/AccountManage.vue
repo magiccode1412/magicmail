@@ -27,6 +27,7 @@
         :key="acc.id"
         class="account-item"
         :class="{ 'is-disabled': acc.status === 'disabled' }"
+        @click="openDetail(acc)"
       >
         <!-- 左侧：图标 + 基本信息 -->
         <div class="item-left">
@@ -52,14 +53,13 @@
 
         <!-- 中间：详情 -->
         <div class="item-details">
-          <span class="detail-tag">{{ (acc.protocol || 'imap').toUpperCase() }} {{ acc.host }}:{{ acc.port }}</span>
           <span class="detail-tag">邮件 {{ acc.mail_count }}</span>
           <span class="detail-tag text-primary">未读 {{ acc.unread_count }}</span>
           <span class="detail-tag text-muted">{{ acc.last_sync_at ? formatTime(acc.last_sync_at) : '从未同步' }}</span>
         </div>
 
         <!-- 右侧：操作 -->
-        <div class="item-actions">
+        <div class="item-actions" @click.stop>
           <button
             class="btn btn-ghost btn-sm"
             :class="{ 'text-muted': acc.status === 'disabled' }"
@@ -119,6 +119,63 @@
       @close="closeForm"
       @saved="onSaved"
     />
+
+    <!-- 邮箱详情弹窗 -->
+    <div v-if="detailAccount" class="modal-overlay" @click="closeDetail">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <div class="modal-title">
+            <h3>{{ detailAccount.name }}</h3>
+            <span class="modal-subtitle">{{ detailAccount.email }}</span>
+          </div>
+          <button class="modal-close" @click="closeDetail" title="关闭">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 同步状态 -->
+          <section class="detail-section">
+            <h4 class="section-title">同步状态</h4>
+            <div class="mode-row">
+              <span class="mode-badge" :class="modeInfo(currentMode).cls">{{ modeInfo(currentMode).label }}</span>
+              <span class="mode-desc">{{ modeInfo(currentMode).desc }}</span>
+            </div>
+            <div class="kv-grid">
+              <div class="kv"><span class="k">最后同步</span><span class="v">{{ detailAccount.last_sync_at ? formatTime(detailAccount.last_sync_at) : '从未同步' }}</span></div>
+              <div class="kv"><span class="k">邮件总数</span><span class="v">{{ detailAccount.mail_count }}</span></div>
+              <div class="kv"><span class="k">未读</span><span class="v text-primary">{{ detailAccount.unread_count }}</span></div>
+              <div class="kv"><span class="k">账号状态</span><span class="v">{{ statusLabel(detailAccount.status) }}</span></div>
+            </div>
+            <div class="error-box" v-if="detailAccount.error_msg">
+              <strong>错误信息：</strong>{{ detailAccount.error_msg }}
+            </div>
+          </section>
+
+          <!-- 连接信息 -->
+          <section class="detail-section">
+            <h4 class="section-title">连接信息</h4>
+            <div class="kv-grid">
+              <div class="kv"><span class="k">协议</span><span class="v">{{ (detailAccount.protocol || 'imap').toUpperCase() }}</span></div>
+              <div class="kv"><span class="k">收信服务器</span><span class="v">{{ detailAccount.host }}:{{ detailAccount.port }}</span></div>
+              <div class="kv"><span class="k">SMTP 发信</span><span class="v">{{ (detailAccount.smtp_host || detailAccount.host) }}:{{ detailAccount.smtp_port || '—' }}</span></div>
+              <div class="kv"><span class="k">登录用户名</span><span class="v">{{ detailAccount.username }}</span></div>
+              <div class="kv"><span class="k">认证方式</span><span class="v">{{ authLabel(detailAccount) }}</span></div>
+              <div class="kv"><span class="k">代理</span><span class="v">{{ detailAccount.proxy_enabled ? '已启用' : '未启用' }}</span></div>
+            </div>
+          </section>
+
+          <!-- 同步设置 -->
+          <section class="detail-section">
+            <h4 class="section-title">同步设置</h4>
+            <div class="kv-grid">
+              <div class="kv"><span class="k">同步模式</span><span class="v">{{ syncModeLabel(detailAccount.sync_mode) }}</span></div>
+              <div class="kv" v-if="detailAccount.sync_mode === 'recent'"><span class="k">同步最近</span><span class="v">{{ detailAccount.sync_days }} 天</span></div>
+              <div class="kv"><span class="k">删除时同步服务器</span><span class="v">{{ detailAccount.delete_on_server ? '是' : '否' }}</span></div>
+              <div class="kv"><span class="k">创建时间</span><span class="v">{{ formatTime(detailAccount.created_at) }}</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -143,6 +200,18 @@ const loading = computed(() => accountStore.loading)
 
 // 正在同步中的账号集合（由 SSE 的 account.sync_* 事件驱动，实时反馈进度）
 const syncingIds = reactive(new Set())
+
+// 各账号当前同步模式（由 SSE 的 account.mode_changed 实时推送覆盖，初始值来自列表接口的 mode 字段）
+const liveModes = reactive({})
+
+// 详情弹窗选中的账号
+const detailAccount = ref(null)
+
+// 当前展示的同步模式：优先采用 SSE 实时推送值，回退到列表接口返回的初始值
+const currentMode = computed(() => {
+  if (!detailAccount.value) return ''
+  return liveModes[detailAccount.value.id] || detailAccount.value.mode || ''
+})
 
 // 监听账号同步进度（替代手动同步后无反馈的问题）
 useSSE({
@@ -175,6 +244,12 @@ useSSE({
       }
     }
   },
+  // 账号同步模式变化（idle/polling/syncing/stopped）：实时更新详情弹窗中的展示
+  onAccountModeChanged(data) {
+    if (data && data.account_id) {
+      liveModes[data.account_id] = data.mode
+    }
+  },
 })
 
 const showForm = ref(false)
@@ -205,6 +280,36 @@ function closeForm() {
 function onSaved() {
   closeForm()
   accountStore.fetchAccounts() // 刷新列表
+}
+
+// --- 详情弹窗 ---
+function openDetail(account) {
+  detailAccount.value = account
+}
+function closeDetail() {
+  detailAccount.value = null
+}
+
+// 同步模式展示信息
+const modeInfoMap = {
+  idle:    { label: 'IMAP IDLE 实时', desc: '服务器有新邮件时主动推送通知（RFC2177 IDLE）', cls: 'mode-idle' },
+  polling: { label: '轮询同步', desc: '按同步间隔定时主动拉取邮件', cls: 'mode-polling' },
+  syncing: { label: '同步中', desc: '正在与服务器同步邮件…', cls: 'mode-syncing' },
+  stopped: { label: '已停止', desc: 'Worker 已停止（账号可能已停用）', cls: 'mode-stopped' },
+}
+function modeInfo(mode) {
+  return modeInfoMap[mode] || { label: '未知', desc: '账号可能未启用或 Worker 未运行', cls: 'mode-unknown' }
+}
+function statusLabel(s) {
+  return { active: '正常', error: '异常', disabled: '已停用' }[s] || s || '未知'
+}
+function authLabel(acc) {
+  if (acc.auth_type === 'oauth2_microsoft') return 'OAuth2 (Microsoft)'
+  if (acc.auth_type === 'oauth2_google') return 'OAuth2 (Google)'
+  return '密码'
+}
+function syncModeLabel(m) {
+  return { unread: '仅未读', all: '全部邮件', recent: '最近 N 天' }[m] || m || '—'
 }
 
 async function handleSync(id) {
@@ -440,5 +545,140 @@ function formatTime(dateStr) {
     align-items: stretch;
     gap: var(--space-sm);
   }
+}
+
+/* ---- 详情弹窗 ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-md);
+  animation: overlay-in 0.15s ease-out;
+}
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in 0.18s ease-out;
+}
+@keyframes modal-in {
+  from { transform: translateY(12px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border-light);
+}
+.modal-title h3 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-primary);
+}
+.modal-subtitle {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.modal-close:hover { color: var(--text-primary); }
+.modal-body {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.section-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.mode-badge {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.mode-idle    { background: rgba(16, 185, 129, 0.12); color: var(--success); border-color: rgba(16, 185, 129, 0.3); }
+.mode-polling { background: rgba(59, 130, 246, 0.12); color: var(--primary-500); border-color: rgba(59, 130, 246, 0.3); }
+.mode-syncing { background: rgba(245, 158, 11, 0.14); color: #d97706; border-color: rgba(245, 158, 11, 0.3); }
+.mode-stopped { background: var(--bg-tertiary); color: var(--text-tertiary); }
+.mode-unknown { background: var(--bg-tertiary); color: var(--text-tertiary); }
+.mode-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm) var(--space-lg);
+}
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.kv .k {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+.kv .v {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.error-box {
+  font-size: var(--font-size-sm);
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+}
+
+@media (max-width: 900px) {
+  .kv-grid { grid-template-columns: 1fr; }
 }
 </style>

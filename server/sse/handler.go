@@ -366,6 +366,22 @@ func PublishAccountHealth(userID, accountID uint, accountEmail, status, errMsg s
 	})
 }
 
+// PublishAccountMode 发布账号当前同步模式变化事件（供 Worker 在 idle/polling/syncing/stopped 切换时调用，按用户隔离）
+// mode 取值："idle"（IMAP IDLE 实时推送）/ "polling"（定时轮询）/ "syncing"（正在同步）/ "stopped"（已停止）
+// 前端据此在账号详情中实时展示该账号当前是走 IDLE 还是轮询
+func PublishAccountMode(userID, accountID uint, accountEmail, mode string) {
+	if GlobalBroker() == nil {
+		return
+	}
+
+	GlobalBroker().PublishToUser(userID, "account.mode_changed", fiber.Map{
+		"account_id":    accountID,
+		"account_email": accountEmail,
+		"mode":          mode,
+		"timestamp":     time.Now().Format(time.RFC3339),
+	})
+}
+
 // PublishUserCreated 发布用户创建事件（广播给所有在线管理员，用于多管理员一致性）
 func PublishUserCreated(userID uint, username string) {
 	if GlobalBroker() == nil {

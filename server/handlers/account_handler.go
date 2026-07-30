@@ -92,8 +92,8 @@ func (h *AccountHandler) Create(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 
-	// 基本校验
-	if req.Name == "" || req.Email == "" || req.Host == "" || req.Username == "" {
+	// 基本校验（邮箱地址可选，为空时后端复用用户名）
+	if req.Name == "" || req.Host == "" || req.Username == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "必填字段不能为空"})
 	}
 
@@ -140,7 +140,8 @@ func (h *AccountHandler) Update(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 	
-	if req.Name == "" || req.Email == "" || req.Host == "" || req.Username == "" {
+	// 邮箱地址可选，为空时后端复用用户名
+	if req.Name == "" || req.Host == "" || req.Username == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "必填字段不能为空"})
 	}
 

@@ -205,6 +205,14 @@ export function useSSE(options = {}) {
         } catch (e) { console.error('[useSSE] 解析 account.health 失败:', e) }
       })
 
+      // 账号当前同步模式变化（idle/polling/syncing/stopped），实时刷新详情弹窗中的状态
+      es.addEventListener('account.mode_changed', (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (typeof options.onAccountModeChanged === 'function') options.onAccountModeChanged(data)
+        } catch (e) { console.error('[useSSE] 解析 account.mode_changed 失败:', e) }
+      })
+
       // Webhook 投递结果事件
       es.addEventListener('webhook.delivered', (event) => {
         try {
@@ -357,7 +365,7 @@ export function useMailStream(onMailUpdate, extraOptions = {}) {
     onMailReceived: onUpdate,
     onMailSynced: onUpdate,
     onMailSent: onUpdate, // 修复 mail.sent 死事件：发送后触发列表/统计刷新
-    onMailDeleted, // 跨标签页删除实时一致
+    onMailDeleted: onDeleted, // 跨标签页删除实时一致
     onError: () => {
       // 连接中断由内部自动重连处理
     },

@@ -113,6 +113,10 @@ func (a *MailAccount) AfterFind(tx *gorm.DB) error {
 
 // setDefaultValues 设置默认值
 func (a *MailAccount) setDefaultValues() {
+	// 邮箱地址为可选项：未填写时复用登录用户名（多数服务商用户名即邮箱地址）
+	if a.Email == "" {
+		a.Email = a.Username
+	}
 	if a.Status == "" {
 		a.Status = "active"
 	}
@@ -229,7 +233,7 @@ func inferSMTPHost(imapHost string) string {
 }
 type AccountRequest struct {
 	Name           string `json:"name" validate:"required,min=1,max=100"`
-	Email          string `json:"email" validate:"required,email"`
+	Email          string `json:"email" validate:"omitempty,email"` // 可选，为空时复用 Username
 	Protocol       string `json:"protocol" validate:"omitempty,oneof=imap pop3 pop3-no-ssl"`
 	Host           string `json:"host" validate:"required"`
 	Port           int    `json:"port" validate:"min=1,max=65535"`
@@ -258,6 +262,7 @@ type AccountResponse struct {
 	Protocol       string      `json:"protocol"`
 	ImapHost       string      `json:"host"`
 	Port           int         `json:"port"`
+	Mode           string      `json:"mode"`              // 当前同步模式: idle/polling/syncing/stopped（由 Worker 实时上报，可能为空）
 	SmtpHost       string      `json:"smtp_host,omitempty"`
 	SmtpPort       int         `json:"smtp_port,omitempty"`
 	Username       string      `json:"username"`
