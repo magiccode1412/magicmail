@@ -169,6 +169,9 @@ function generateThemePalette(baseHex, isDark) {
       '--mail-unread-bg': cssHSLA(h, s * 0.75, 68, 0.07),
       '--mail-selected-bg': cssHSLA(h, s * 0.80, 62, 0.13),
 
+      // ---- 选中态背景（浅色：柔和浅色主色；深色：暗色主色，避免深色模式下近乎纯白刺眼）----
+      '--selected-bg': p[50],
+
       // ---- 滚动条 ----
       '--scrollbar-track': cssHSL(h, Math.min(s * 0.25, 12), 95),
       '--scrollbar-thumb': cssHSL(h, Math.min(s * 0.35, 18), 82),
@@ -245,6 +248,9 @@ function generateThemePalette(baseHex, isDark) {
       '--mail-read-bg': 'transparent',
       '--mail-unread-bg': cssHSLA(h, s * 0.7, 58, 0.10),
       '--mail-selected-bg': cssHSLA(h, s * 0.78, 54, 0.17),
+
+      // ---- 选中态背景（深色：暗色主色半透明，叠在深色卡片上形成柔和选中色，不刺眼）----
+      '--selected-bg': cssHSLA(h, Math.min(s + 8, 100), 32, 0.55),
 
       // ---- 滚动条 ----
       '--scrollbar-track': cssHSL(h, Math.max(s * 0.08, 4), 15),

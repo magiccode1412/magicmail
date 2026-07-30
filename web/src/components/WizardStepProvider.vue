@@ -103,7 +103,7 @@ const selectedKey = computed(() => props.selectedProvider?.key || '')
 
 .provider-card.active {
   border-color: var(--primary-500);
-  background: var(--primary-50);
+  background: var(--selected-bg, var(--primary-50));
   box-shadow: 0 0 0 3px var(--mail-selected-bg, var(--primary-100)), var(--shadow-md);
   transform: translateY(-2px);
 }

@@ -238,7 +238,7 @@ const syncModes = [
   transition: all 0.2s;
 }
 .radio-option:hover { background: var(--bg-hover); border-color: var(--primary-300); }
-.radio-option.active { border-color: var(--primary-500); background: var(--primary-50); }
+.radio-option.active { border-color: var(--primary-500); background: var(--selected-bg, var(--primary-50)); }
 .radio-option span { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--text-primary); }
 .radio-option small { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 

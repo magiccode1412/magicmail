@@ -18,7 +18,7 @@
     <div v-if="isDomesticProvider" class="config-form simple-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：工作 QQ 邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
         <label class="form-label">邮箱地址 <span class="required">*</span></label>
@@ -53,7 +53,7 @@
     <div v-else-if="isOAuth2Provider" class="config-form oauth2-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：我的 Outlook 邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
         <label class="form-label">邮箱地址 <span class="optional">（可选）</span></label>
@@ -94,7 +94,7 @@
     <div v-else class="config-form manual-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：我的邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
         <label class="form-label">邮箱地址</label>
@@ -169,6 +169,8 @@ const isOAuth2Provider = computed(() => {
 })
 
 const providerName = computed(() => props.selectedProvider?.name || '')
+// 显示名称占位符：根据所选邮箱类型动态生成（如 163 → 工作 163 邮箱）
+const namePlaceholder = computed(() => `如：工作 ${providerName.value}`)
 const domain = computed(() => props.selectedProvider?.domain || '')
 const providerDomains = computed(() => props.selectedProvider?.domains || [])
 const oauthProviderName = computed(() => props.selectedProvider?.oauthProvider || '')
