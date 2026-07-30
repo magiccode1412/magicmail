@@ -381,6 +381,23 @@ async function handleBatchDelete() {
 // --- 生命周期 ---
 let refreshTimer = null
 
+// ⭐ SSE 必须在 setup 同步阶段注册（同 MailListView），用于跨标签页实时更新
+const { connectionMode: sseMode } = useMailStream(() => {
+  // 收到新邮件/删除等事件时自动刷新当前「已发送」列表与统计
+  mailStore.fetchMails(mailStore.currentPage)
+  mailStore.fetchStats()
+}, {
+  onFallback: () => {
+    // SSE 失败后重启轮询（备用机制）
+    console.log('[Sent] SSE 不可用，使用轮询模式')
+    startRefreshTimer()
+  }
+})
+
+watch(sseMode, (mode) => {
+  if (mode) appStore.setConnectionMode(mode)
+}, { immediate: true })
+
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
     await accountStore.fetchAccounts()

@@ -216,11 +216,15 @@ func (h *MailHandler) Delete(c *fiber.Ctx) error {
 	accountID, _ := h.service.GetMailAccountID(uint(id), getUserID(c))
 	result := h.service.Delete(uint(id), getUserID(c))
 	if !result.Success {
-		return c.Status(500).JSON(fiber.Map{"error": "删除失败"})
+		msg := "删除失败"
+		if result.ServerDeleteError != "" {
+			msg = "源服务器删除失败，本地邮件已保留：" + result.ServerDeleteError
+		}
+		return c.Status(500).JSON(fiber.Map{"error": msg})
 	}
 
-	// 推送实时事件，触发客户端自动刷新列表（携带账号维度）
-	sse.PublishMailSynced(getUserID(c), accountID, "")
+	// 推送实时事件：携带被删邮件 ID，供其它标签页/客户端即时从本地列表移除（无需整列表刷新）
+	sse.PublishMailDeleted(getUserID(c), accountID, []uint{uint(id)})
 
 	return c.JSON(result)
 }
@@ -239,8 +243,20 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 
 	result := h.service.BatchDelete(req.IDs, getUserID(c))
 
-	// 推送实时事件，触发客户端自动刷新列表
-	sse.PublishMailSynced(getUserID(c), 0, "")
+	// 仅对“本地删除成功”的邮件广播删除事件；云端删除失败而被保留本地的邮件不应被其它客户端移除
+	failedSet := make(map[uint]bool, len(result.Failed))
+	for _, id := range result.Failed {
+		failedSet[id] = true
+	}
+	successfulIDs := make([]uint, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if !failedSet[id] {
+			successfulIDs = append(successfulIDs, id)
+		}
+	}
+	if len(successfulIDs) > 0 {
+		sse.PublishMailDeleted(getUserID(c), 0, successfulIDs)
+	}
 
 	return c.JSON(fiber.Map{
 		"success":            result.Success,

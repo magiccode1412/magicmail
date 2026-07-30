@@ -176,6 +176,7 @@ import { ref, computed, watch, onMounted, onActivated, onUnmounted, onDeactivate
 import { useRouter } from 'vue-router'
 import { getDrafts, deleteDraft as apiDeleteDraft, batchDeleteDrafts as apiBatchDelete } from '@/api/draft'
 import { useAppStore } from '@/stores/appStore'
+import { useSSE } from '@/composables/useSSE'
 import { useToast } from '@/composables/useToast'
 import Pagination from '../components/Pagination.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -314,6 +315,23 @@ async function handleBatchDelete() {
   }
 }
 
+// 处理来自其它标签页/客户端的草稿删除事件（SSE draft.deleted）
+// 从本地草稿列表即时移除指定项，无需整列表刷新，实现跨标签页实时一致。
+// 幂等：若本地已不存在这些 ID（如发起删除的标签页已自行移除），则直接返回，避免重复扣减计数。
+function handleDraftDeleted(ids) {
+  if (!ids || !ids.length) return
+  const idSet = new Set(ids.map(String))
+  const before = drafts.value.length
+  drafts.value = drafts.value.filter(d => !idSet.has(String(d.id)))
+  const removed = before - drafts.value.length
+  if (removed === 0) return // 本地已移除（如发起删除的标签页），幂等退出
+  total.value -= removed
+  // 同步清理多选集合，避免指向已不存在的草稿
+  if (selectedIds.value.length > 0) {
+    selectedIds.value = selectedIds.value.filter(id => !idSet.has(String(id)))
+  }
+}
+
 function formatRecipients(toStr) {
   if (!toStr) return '-'
   try {
@@ -364,6 +382,19 @@ async function fetchDrafts(page = 1) {
     loading.value = false
   }
 }
+
+// --- SSE 实时推送（跨标签页一致）---
+// ⭐ 必须在 setup 同步阶段注册（与 MailListView / SentView 一致），用于跨标签页实时更新。
+// 仅消费 draft.deleted：其它标签页/客户端删除草稿时，本视图从本地列表即时移除，无需整列表刷新。
+const { connectionMode: sseMode } = useSSE({
+  onDraftDeleted: (data) => {
+    handleDraftDeleted(data?.ids || [])
+  },
+})
+
+watch(sseMode, (mode) => {
+  if (mode) appStore.setConnectionMode(mode)
+}, { immediate: true })
 
 // --- 生命周期 ---
 onMounted(async () => {

@@ -2,6 +2,7 @@
 // Copyright (C) 2026  magiccode (魔法代码)
 
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useMailStore } from '@/stores/mailStore'
 
 /**
  * 从 localStorage 获取认证 Token
@@ -107,6 +108,18 @@ export function useSSE(options = {}) {
         }
       })
 
+      // 邮件已删除事件（跨标签页/客户端实时一致：携带被删邮件 ID，供前端从本地列表即时移除）
+      es.addEventListener('mail.deleted', (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (typeof options.onMailDeleted === 'function') {
+            options.onMailDeleted(data)
+          }
+        } catch (e) {
+          console.error('[useSSE] 解析 mail.deleted 事件失败:', e)
+        }
+      })
+
       // OAuth2 设备码授权成功（替代前端的 HTTP 轮询）
       es.addEventListener('oauth.authorized', (event) => {
         try {
@@ -149,6 +162,18 @@ export function useSSE(options = {}) {
           const data = JSON.parse(event.data)
           if (typeof options.onAccountSyncError === 'function') options.onAccountSyncError(data)
         } catch (e) { console.error('[useSSE] 解析 account.sync_error 失败:', e) }
+      })
+
+      // 草稿已删除事件（跨标签页/客户端实时一致：携带被删草稿 ID，供前端从本地草稿列表即时移除）
+      es.addEventListener('draft.deleted', (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (typeof options.onDraftDeleted === 'function') {
+            options.onDraftDeleted(data)
+          }
+        } catch (e) {
+          console.error('[useSSE] 解析 draft.deleted 事件失败:', e)
+        }
       })
 
       // 账号生命周期事件（创建/更新/删除/状态变更，用于多标签页一致性）
@@ -312,10 +337,27 @@ export function useSSE(options = {}) {
  */
 export function useMailStream(onMailUpdate, extraOptions = {}) {
   const onUpdate = typeof onMailUpdate === 'function' ? onMailUpdate : () => {}
+
+  // 默认消费 mail.deleted：从共享邮件 store 即时移除被其它标签页/客户端删除的邮件。
+  // 若调用方显式传入 onMailDeleted，则优先使用调用方的回调。
+  const onDeleted = typeof extraOptions.onMailDeleted === 'function'
+    ? extraOptions.onMailDeleted
+    : (data) => {
+        try {
+          const store = useMailStore()
+          store.handleMailDeleted(data?.ids || [])
+          // 轻量刷新统计（侧边栏角标），确保未读计数与已删邮件一致
+          store.fetchStats()
+        } catch (e) {
+          // store 未初始化时忽略
+        }
+      }
+
   return useSSE({
     onMailReceived: onUpdate,
     onMailSynced: onUpdate,
     onMailSent: onUpdate, // 修复 mail.sent 死事件：发送后触发列表/统计刷新
+    onMailDeleted, // 跨标签页删除实时一致
     onError: () => {
       // 连接中断由内部自动重连处理
     },

@@ -180,6 +180,33 @@ func PublishMailSent(userID, accountID uint, accountEmail string, data map[strin
 	})
 }
 
+// PublishMailDeleted 发布邮件删除事件（供 handler 在邮件删除成功后调用，按用户隔离）
+// 携带被删除的邮件 ID 列表：其它标签页/客户端据此从本地列表即时移除对应项，
+// 无需整列表刷新（避免删除操作的“复活”与陈旧数据回显），实现跨标签页实时一致。
+func PublishMailDeleted(userID, accountID uint, ids []uint) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "mail.deleted", fiber.Map{
+		"account_id": accountID,
+		"ids":        ids,
+		"timestamp":  time.Now().Format(time.RFC3339),
+	})
+}
+
+// PublishDraftDeleted 发布草稿删除事件（供 handler 在草稿删除成功后调用，按用户隔离）
+// 携带被删除的草稿 ID 列表：其它标签页/客户端据此从本地草稿列表即时移除对应项，
+// 无需整列表刷新，实现跨标签页实时一致。
+func PublishDraftDeleted(userID uint, ids []uint) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "draft.deleted", fiber.Map{
+		"ids":       ids,
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
 // PublishMailSynced 发布邮件同步完成事件（供 Worker 调用，按用户隔离）
 func PublishMailSynced(userID, accountID uint, accountEmail string) {
 	if GlobalBroker() == nil {

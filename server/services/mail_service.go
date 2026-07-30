@@ -315,15 +315,17 @@ func (s *MailService) Delete(id, userID uint) *DeleteResult {
 		return result // 邮箱账号不存在
 	}
 
-	// 如果开启了源服务器删除，先删除远程邮件
+	// 若开启了“同步删除源服务器邮件”，必须先成功删除源服务器上的邮件，再删除本地。
+	// 原因：若先删本地、云端删除失败，则下次邮件同步时该邮件会被重新下载回来，造成数据不一致。
+	// 因此云端删除失败时中断整个删除流程、保留本地副本，由上层返回错误，前端提示用户稍后重试。
 	if account.DeleteOnServer && s.config != nil {
 		if err := s.deleteFromServer(&account, &mail); err != nil {
-			log.Printf("[WARN] 源服务器删除失败 (mail_id=%d): %v", id, err)
+			log.Printf("[ERROR] 源服务器删除失败，已取消本地删除以避免被同步重新下载 (mail_id=%d): %v", id, err)
 			result.ServerDeleteError = err.Error()
-			// 远程删除失败不阻止本地删除，仅记录错误
-		} else {
-			result.DeletedFromServer = true
+			// 不删除本地，Success 保持 false，交由 handler 返回错误给前端
+			return result
 		}
+		result.DeletedFromServer = true
 	}
 
 	tx := s.db.Begin()
