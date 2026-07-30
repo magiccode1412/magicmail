@@ -4,10 +4,13 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"magicmail/config"
 	"magicmail/crypto"
@@ -49,6 +52,10 @@ func main() {
 	if isProduction == "true" {
 		os.Setenv("MAGICMAIL_ENV", "production")
 	}
+
+	// 初始化日志输出：开发→终端 stderr，生产→数据卷日志文件（含轮转）
+	setupLogging()
+
 	// 加载配置
 	cfg := config.Load()
 
@@ -91,6 +98,8 @@ func main() {
 		Next: func(c *fiber.Ctx) bool {
 			return c.Path() == "/api/v1/mails/stream"
 		},
+		// 访问日志与业务日志走同一输出目标（开发=终端，生产=日志文件）
+		Output: logWriter,
 	}))
 
 	// 注册 API 路由
@@ -107,4 +116,122 @@ func main() {
 	if err := app.Listen(cfg.Server.Addr()); err != nil {
 		log.Fatalf("❌ 服务启动失败: %v", err)
 	}
+}
+
+// logWriter 是全局日志输出目标：
+//   - 开发环境 → os.Stderr（终端实时可见）
+//   - 生产环境 → 数据卷日志文件 + stderr（文件可用 NAS 文件管理器查看，stderr 保留给 docker logs）
+var logWriter io.Writer = os.Stderr
+
+// setupLogging 根据运行环境配置日志输出：
+//   - 开发（isProduction != "true"）：输出到终端 stderr
+//   - 生产（isProduction == "true"）：输出到 MAGICMAIL_LOG_FILE 指定的文件
+//     （默认位于数据目录下的 magicmail.log），并带大小轮转
+func setupLogging() {
+	log.SetFlags(log.LstdFlags)
+
+	if isProduction != "true" {
+		logWriter = os.Stderr
+		log.SetOutput(logWriter)
+		log.Printf("🖥️  开发环境：日志输出到终端")
+		return
+	}
+
+	// 生产环境：确定日志文件路径
+	logPath := os.Getenv("MAGICMAIL_LOG_FILE")
+	if logPath == "" {
+		logPath = filepath.Join(dataDirFromDSN(), "magicmail.log")
+	}
+
+	rw, err := newRotatingWriter(logPath, 10*1024*1024, 3) // 单文件上限 10MB，保留 3 个备份
+	if err != nil {
+		log.Printf("⚠️  无法创建日志文件 %s，回退到 stderr: %v", logPath, err)
+		logWriter = os.Stderr
+		log.SetOutput(logWriter)
+		return
+	}
+
+	// 同时写文件 + stderr：文件供 NAS 文件管理器查看，stderr 保留给 docker logs
+	logWriter = io.MultiWriter(rw, os.Stderr)
+	log.SetOutput(logWriter)
+	log.Printf("📝 生产环境：日志写入文件 %s（每 10MB 轮转，保留 3 份）", logPath)
+}
+
+// dataDirFromDSN 根据 MAGICMAIL_DSN 推断数据目录（默认 data/）
+func dataDirFromDSN() string {
+	dsn := os.Getenv("MAGICMAIL_DSN")
+	if dsn == "" {
+		dsn = "data/magicmail.db"
+	}
+	dir := filepath.Dir(dsn)
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// rotatingWriter 基于文件大小的日志轮转写入器，防止日志无限增长占满磁盘
+type rotatingWriter struct {
+	mu       sync.Mutex
+	path     string
+	maxBytes int64
+	backups  int
+	f        *os.File
+	size     int64
+}
+
+func newRotatingWriter(path string, maxBytes int64, backups int) (*rotatingWriter, error) {
+	w := &rotatingWriter{path: path, maxBytes: maxBytes, backups: backups}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := w.open(); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+func (w *rotatingWriter) open() error {
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	w.f = f
+	if fi, err := f.Stat(); err == nil {
+		w.size = fi.Size()
+	}
+	return nil
+}
+
+func (w *rotatingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.f == nil {
+		if err := w.open(); err != nil {
+			return 0, err
+		}
+	}
+	if w.maxBytes > 0 && w.size+int64(len(p)) > w.maxBytes {
+		if err := w.rotate(); err != nil {
+			return 0, err
+		}
+	}
+	n, err := w.f.Write(p)
+	w.size += int64(n)
+	return n, err
+}
+
+func (w *rotatingWriter) rotate() error {
+	if w.f != nil {
+		_ = w.f.Close()
+		w.f = nil
+	}
+	if w.backups > 0 {
+		// 删除最老的备份
+		_ = os.Remove(fmt.Sprintf("%s.%d", w.path, w.backups))
+		// 平移备份：magicmail.log.2 → .3 ... magicmail.log → .1
+		for i := w.backups - 1; i >= 1; i-- {
+			_ = os.Rename(fmt.Sprintf("%s.%d", w.path, i), fmt.Sprintf("%s.%d", w.path, i+1))
+		}
+		_ = os.Rename(w.path, w.path+".1")
+	}
+	return w.open()
 }

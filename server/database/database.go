@@ -97,7 +97,7 @@ func Init(dsn string) *gorm.DB {
 	// 这些残留明文会被重新加密，避免后续读取解密失败、密码被置空。
 	encryptPlaintextSecrets(db)
 
-	fmt.Println("✅ 数据库初始化成功:", dsn)
+	log.Println("✅ 数据库初始化成功:", dsn)
 	return db
 }
 
