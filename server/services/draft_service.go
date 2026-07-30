@@ -88,7 +88,7 @@ func (s *DraftService) ListDrafts(userID uint, page, pageSize int, keyword strin
 		pageSize = 20
 	}
 
-	baseQuery := s.db.Model(&models.Draft{}).Where("user_id = ?", userID)
+	baseQuery := s.db.Model(&models.Draft{}).Where("drafts.user_id = ?", userID)
 	if keyword != "" {
 		kw := "%" + keyword + "%"
 		baseQuery = baseQuery.Where("drafts.subject LIKE ? OR drafts.body LIKE ? OR drafts.`to` LIKE ?", kw, kw, kw)

@@ -74,7 +74,7 @@ func (s *MailService) List(filter models.MailListFilter, userID uint) ([]models.
 	// 搜索：发件人或主题关键词
 	if filter.Keyword != "" {
 		keyword := "%" + filter.Keyword + "%"
-		query = query.Where("mails.from LIKE ? OR mails.subject LIKE ?", keyword, keyword)
+		query = query.Where("mails.`from` LIKE ? OR mails.subject LIKE ?", keyword, keyword)
 	}
 
 	// 统计总数
