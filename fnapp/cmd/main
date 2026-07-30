@@ -31,6 +31,17 @@ log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "${LOG_FILE}"
 }
 
+# 安全打印环境变量：默认脱敏（过滤含 SECRET/KEY/TOKEN/PASSWORD/CREDENTIAL/PRIVATE 等
+# 关键词的变量，避免把 MAGICMAIL_JWT_SECRET、MAGICMAIL_ENCRYPT_KEY 等密钥写入日志）；
+# 仅当显式设置 MAGICMAIL_DIAG=1 时才输出完整环境变量（用于深度排障）。
+dump_env() {
+    if [ "${MAGICMAIL_DIAG}" = "1" ] || [ "${MAGICMAIL_DIAG}" = "true" ]; then
+        env 2>/dev/null | sort || true
+    else
+        env 2>/dev/null | sort | grep -viE 'SECRET|KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE' || true
+    fi
+}
+
 # ============================================================
 # 诊断函数 — 记录环境信息到 diag.log（详细版）
 # ============================================================
@@ -45,8 +56,8 @@ diag() {
         echo "CURRENT_USER: $(whoami)"
         echo "CURRENT_DIR: $(pwd)"
         echo ""
-        echo "--- [DEBUG] 完整环境变量 ---"
-        env 2>/dev/null | sort || echo "(env command failed)"
+        echo "--- [DEBUG] 环境变量（已脱敏，设 MAGICMAIL_DIAG=1 可输出完整） ---"
+        dump_env
         echo ""
         echo "--- [DEBUG] 飞牛内置变量 ---"
         echo "TRIM_PKGVAR         = [${TRIM_PKGVAR}] (length: ${#TRIM_PKGVAR})"

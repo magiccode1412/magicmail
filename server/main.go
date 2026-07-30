@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"bytes"
 	"io"
 	"log"
 	"os"
@@ -121,40 +122,60 @@ func main() {
 // logWriter 是全局日志输出目标：
 //   - 开发环境 → os.Stderr（终端实时可见）
 //   - 生产环境 → 数据卷日志文件 + stderr（文件可用 NAS 文件管理器查看，stderr 保留给 docker logs）
+//   - 所有输出再经过 debugFilter：未开启 debug 级别时不写入 [DEBUG] 日志
 var logWriter io.Writer = os.Stderr
 
+// debugFilter 根据 enabled 决定是否丢弃含 [DEBUG] 标记的日志行。
+// 用于在生产环境默认关闭冗余调试日志，避免日志膨胀、并减少敏感调用链外泄。
+type debugFilter struct {
+	w       io.Writer
+	enabled bool
+}
+
+func (f *debugFilter) Write(p []byte) (int, error) {
+	if !f.enabled && bytes.Contains(p, []byte("[DEBUG]")) {
+		return len(p), nil
+	}
+	return f.w.Write(p)
+}
+
 // setupLogging 根据运行环境配置日志输出：
-//   - 开发（isProduction != "true"）：输出到终端 stderr
-//   - 生产（isProduction == "true"）：输出到 MAGICMAIL_LOG_FILE 指定的文件
-//     （默认位于数据目录下的 magicmail.log），并带大小轮转
+//   - 开发（isProduction != "true"）：输出到终端 stderr，且默认开启 debug 日志
+//   - 生产（isProduction == "true"）：输出到 MAGICMAIL_LOG_FILE 指定的文件（带大小轮转），
+//     默认关闭 debug 日志；设置环境变量 MAGICMAIL_LOG_LEVEL=debug 可开启
 func setupLogging() {
 	log.SetFlags(log.LstdFlags)
 
-	if isProduction != "true" {
-		logWriter = os.Stderr
-		log.SetOutput(logWriter)
+	// 确定 debug 级别是否开启
+	lvl := strings.ToLower(os.Getenv("MAGICMAIL_LOG_LEVEL"))
+	debugEnabled := lvl == "debug"
+	if isProduction != "true" && lvl == "" {
+		debugEnabled = true // 开发环境默认开启 debug
+	}
+
+	// 确定底层写入目标
+	var base io.Writer = os.Stderr
+	if isProduction == "true" {
+		logPath := os.Getenv("MAGICMAIL_LOG_FILE")
+		if logPath == "" {
+			logPath = filepath.Join(dataDirFromDSN(), "magicmail.log")
+		}
+		rw, err := newRotatingWriter(logPath, 10*1024*1024, 3) // 单文件上限 10MB，保留 3 个备份
+		if err != nil {
+			log.Printf("⚠️  无法创建日志文件 %s，回退到 stderr: %v", logPath, err)
+			base = os.Stderr
+		} else {
+			// 同时写文件 + stderr：文件供 NAS 文件管理器查看，stderr 保留给 docker logs
+			base = io.MultiWriter(rw, os.Stderr)
+			log.Printf("📝 生产环境：日志写入文件 %s（每 10MB 轮转，保留 3 份）", logPath)
+		}
+	} else {
 		log.Printf("🖥️  开发环境：日志输出到终端")
-		return
 	}
 
-	// 生产环境：确定日志文件路径
-	logPath := os.Getenv("MAGICMAIL_LOG_FILE")
-	if logPath == "" {
-		logPath = filepath.Join(dataDirFromDSN(), "magicmail.log")
-	}
-
-	rw, err := newRotatingWriter(logPath, 10*1024*1024, 3) // 单文件上限 10MB，保留 3 个备份
-	if err != nil {
-		log.Printf("⚠️  无法创建日志文件 %s，回退到 stderr: %v", logPath, err)
-		logWriter = os.Stderr
-		log.SetOutput(logWriter)
-		return
-	}
-
-	// 同时写文件 + stderr：文件供 NAS 文件管理器查看，stderr 保留给 docker logs
-	logWriter = io.MultiWriter(rw, os.Stderr)
+	// 套用 debug 过滤器（debug 关闭时静默 [DEBUG] 日志）
+	logWriter = &debugFilter{w: base, enabled: debugEnabled}
 	log.SetOutput(logWriter)
-	log.Printf("📝 生产环境：日志写入文件 %s（每 10MB 轮转，保留 3 份）", logPath)
 }
 
 // dataDirFromDSN 根据 MAGICMAIL_DSN 推断数据目录（默认 data/）
