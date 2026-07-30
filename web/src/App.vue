@@ -137,9 +137,13 @@ function handleSearch(keyword) {
 // 刷新处理（根据当前页面执行对应刷新逻辑）
 function handleRefresh() {
   if (route.path === '/mails') {
+    // MailList 与 Sent 共用同一个 mailStore，刷新前必须先把 folder 还原为收件箱，
+    // 否则在「已发送 → 收件箱」之后点刷新会带着 folder='sent' 重新拉取已发送邮件。
+    mailStore.filters.folder = 'inbox'
     mailStore.fetchMails(mailStore.currentPage)
     mailStore.fetchStats()
   } else if (route.path === '/sent') {
+    mailStore.filters.folder = 'sent'
     mailStore.fetchMails(mailStore.currentPage)
     mailStore.fetchStats()
   } else if (route.path === '/accounts') {

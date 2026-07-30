@@ -557,6 +557,11 @@ function handleDocumentClick(e) {
 
 onActivated(() => {
   // 从缓存恢复时刷新列表数据（保留当前页码与筛选条件，避免被重置到第 1 页）
+  // ⚠️ 必须先把 folder 还原为收件箱：因 MailList 与 Sent 共用同一个 mailStore
+  // （filters.folder / mails 都是共享的），若此处不重置，会从其它视图切回时
+  // 带着 folder='sent'（或其它值）去请求，导致收件箱页面误显示已发送邮件。
+  mailStore.filters.folder = 'inbox'
+  mailStore.filters.keyword = appStore.searchKeyword
   mailStore.fetchMails(mailStore.currentPage)
   mailStore.fetchStats()
   startRefreshTimer()
