@@ -42,23 +42,25 @@ type Broker struct {
 
 // replayableEvents 标记哪些事件类型值得重放给新连接。
 // 仅包含轻量的"状态变更/控制"类事件；高频且负载大的 mail.received / mail.sent 不重放。
+//
+// 注意：以下一次性结果/通知类事件已从重放列表移除，因为它们只应在"实时发生"时提示一次，
+// 不应在每次新建 SSE 连接（刷新页面/重连）时被历史重放，否则会造成误报：
+//   - account.health / account.sync_error：账号连接异常/同步失败的 toast，重放会反复骚扰（尤其账号已删除后仍在弹）
+//   - account.sync_started / account.sync_done：同步进度/“同步完成” toast，重放会显示虚假进度或重复提示
+// 这些事件的"当前状态"已由 accountStore.fetchAccounts() 的 status 字段反映，无需靠重放还原。
 var replayableEvents = map[string]bool{
-	"mail.synced":          true,
-	"oauth.authorized":     true,
-	"oauth.expired":        true,
-	"account.sync_started": true,
-	"account.sync_done":    true,
-	"account.sync_error":   true,
-	"account.created":      true,
-	"account.updated":      true,
-	"account.deleted":      true,
+	"mail.synced":        true,
+	"oauth.authorized":   true,
+	"oauth.expired":      true,
+	"account.created":    true,
+	"account.updated":    true,
+	"account.deleted":    true,
 	"account.status_changed": true,
-	"account.health":       true,
-	"webhook.delivered":    true,
-	"webhook.failed":       true,
-	"user.created":         true,
-	"user.deleted":         true,
-	"stats.updated":        true,
+	"webhook.delivered":  true,
+	"webhook.failed":     true,
+	"user.created":       true,
+	"user.deleted":       true,
+	"stats.updated":      true,
 }
 
 const historyLimit = 32

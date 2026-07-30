@@ -34,6 +34,9 @@ type MailAccount struct {
 	AuthType        string     `json:"auth_type" gorm:"type:varchar(20);default:'';comment:认证类型(password/oauth2_microsoft/oauth2_google)"`
 	OAuthProvider    string     `json:"oauth_provider" gorm:"type:varchar(30);default:'';comment:OAuth2服务商(microsoft/google)"`
 	RefreshToken    string     `json:"-" gorm:"type:text;comment:OAuth2 Refresh Token(AES-256-GCM加密存储)"`
+	// RefreshTokenDecryptFailed 标记 AfterFind 解密 RefreshToken 是否失败（不持久化，仅运行时诊断用）。
+	// 解密失败时 RefreshToken 会被清空，此字段用于区分"从未授权"与"密文损坏/密钥不匹配"。
+	RefreshTokenDecryptFailed bool `json:"-" gorm:"-"`
 	CustomClientId  string     `json:"-" gorm:"type:text;comment:用户自定义OAuth2 Client ID(AES-256-GCM加密存储,为空则使用默认值)"`
 	TokenExpiresAt  *time.Time `json:"token_expires_at" gorm:"comment:Access Token 过期时间"`
 
@@ -90,6 +93,7 @@ func (a *MailAccount) AfterFind(tx *gorm.DB) error {
 		if err != nil {
 			log.Printf("[WARN] MailAccount#%d RefreshToken 解密失败: %v", a.ID, err)
 			a.RefreshToken = ""
+			a.RefreshTokenDecryptFailed = true
 		} else {
 			a.RefreshToken = decrypted
 		}

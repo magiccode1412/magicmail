@@ -281,6 +281,13 @@ func (w *AccountWorker) syncOnce() {
 		return
 	}
 
+	// 持久化刷新得到的 OAuth2 Token（RefreshToken 轮换后需落库，否则进程重启后会用已失效的旧 RefreshToken）
+	if ic, ok := client.(*IMAPClient); ok {
+		if err := ic.persistOAuthTokens(w.db); err != nil {
+			log.Printf("⚠️ 保存刷新后的 OAuth2 Token 失败 (%s): %v", w.account.Email, err)
+		}
+	}
+
 	// 根据协议选择对应的拉取器执行同步
 	var count int
 	var syncedIDs []uint // 本次同步成功入库的邮件ID（webhook精确推送用）

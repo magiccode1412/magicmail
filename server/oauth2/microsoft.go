@@ -219,7 +219,7 @@ func (p *MicrosoftProvider) RefreshAccessToken(ctx context.Context, clientID str
 		}
 		if err := json.Unmarshal(body, &errResp); err == nil {
 			if errResp.Error == "invalid_grant" {
-				return nil, fmt.Errorf("RefreshToken 已失效，需要用户重新授权")
+				return nil, fmt.Errorf("%w: 微软返回 invalid_grant，需要用户重新授权", ErrRefreshTokenRevoked)
 			}
 			return nil, fmt.Errorf("刷新 Token 错误 [%s]: %s", errResp.Error, errResp.ErrorDescription)
 		}

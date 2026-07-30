@@ -165,10 +165,14 @@ useSSE({
   onAccountDeleted() { accountStore.fetchAccounts() },
   onAccountStatusChanged() { accountStore.fetchAccounts() },
   // 账号连接健康状态变化（Worker 推送，实时提示连接异常）
-  onAccountHealth(data) {
-    accountStore.fetchAccounts()
+  onAccountHealth: async (data) => {
+    await accountStore.fetchAccounts()
     if (data.status === 'error') {
-      toast.error(`账号连接异常 (${data.account_email || ''}): ${data.error || '未知错误'}`)
+      // 仅当账号仍存在时提示，避免对已删除账号或历史重放事件误报
+      const exists = accountStore.accounts.some(a => a.id === data.account_id)
+      if (exists) {
+        toast.error(`账号连接异常 (${data.account_email || ''}): ${data.error || '未知错误'}`)
+      }
     }
   },
 })
