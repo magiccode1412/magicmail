@@ -71,6 +71,7 @@ import AppHeader from './components/AppHeader.vue'
 import AppToast from './components/AppToast.vue'
 import { useAppStore } from './stores/appStore'
 import { useMailStore } from './stores/mailStore'
+import { useAccountStore } from './stores/accountStore'
 import { useAuthStore } from './stores/authStore'
 import { useToast } from './composables/useToast'
 import { useUpdateCheck } from './composables/useUpdateCheck'
@@ -82,6 +83,7 @@ const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const mailStore = useMailStore()
+const accountStore = useAccountStore()
 const authStore = useAuthStore()
 
 // 认证状态
@@ -133,6 +135,8 @@ function handleRefresh() {
   } else if (route.path === '/sent') {
     mailStore.fetchMails(mailStore.currentPage)
     mailStore.fetchStats()
+  } else if (route.path === '/accounts') {
+    accountStore.fetchAccounts()
   }
   // 草稿页面的刷新由 DraftsView 自身管理
 }
