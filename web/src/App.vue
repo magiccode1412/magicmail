@@ -50,7 +50,7 @@
       <div class="app-content">
         <router-view v-slot="{ Component, route }">
           <transition name="fade">
-            <keep-alive :include="['MailList', 'Sent', 'Drafts', 'AccountManage', 'Settings']">
+            <keep-alive :include="['MailList', 'Sent', 'Drafts', 'AccountManage', 'Settings', 'About']">
               <component v-if="route.name !== 'Login'" :is="Component" :key="route.name === 'MailReader' ? route.fullPath : route.name" />
             </keep-alive>
           </transition>

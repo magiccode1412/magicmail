@@ -18,7 +18,7 @@
             </linearGradient>
           </defs>
         </svg>
-        <span v-show="!collapsed" class="logo-text">Magicmail</span>
+        <span v-show="!collapsed" class="logo-text">魔法邮箱</span>
       </button>
       <button v-if="isMobile && !collapsed" class="btn-icon btn-ghost close-btn" @click="mobileOpen = false">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -140,6 +140,24 @@
         </span>
         <transition name="fade-text">
           <span v-show="!collapsed" class="nav-label">设置</span>
+        </transition>
+      </router-link>
+
+      <!-- 关于 -->
+      <router-link
+        to="/about"
+        class="nav-item"
+        active-class="active"
+        @click="handleNavClick('/about')"
+      >
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M10 7.5v5M10 6.2v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <transition name="fade-text">
+          <span v-show="!collapsed" class="nav-label">关于</span>
         </transition>
       </router-link>
     </nav>
