@@ -770,6 +770,7 @@ function stopRefreshTimer() {
 .mail-list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-xs, 4px);
 }
 
 /* ---- 加载状态 ---- */

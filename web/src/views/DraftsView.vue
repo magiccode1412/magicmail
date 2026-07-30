@@ -653,7 +653,7 @@ onUnmounted(() => {
 .draft-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-xs, 4px);
 }
 
 /* ---- 草稿卡片项 ---- */
