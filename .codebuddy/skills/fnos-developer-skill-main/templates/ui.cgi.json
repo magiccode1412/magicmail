@@ -1,0 +1,11 @@
+{
+  ".url": {
+    "MyApp.main": {
+      "title": "My App",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "url": "/cgi/ThirdParty/MyApp/index.cgi/",
+      "allUsers": true
+    }
+  }
+}

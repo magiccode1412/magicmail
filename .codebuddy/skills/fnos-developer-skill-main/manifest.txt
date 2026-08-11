@@ -1,0 +1,16 @@
+SKILL.md
+README.md
+manifest.txt
+references/package-model.md
+references/open-api.md
+references/security-review.md
+references/build-test.md
+templates/node-trim-api-client.mjs
+templates/frontend-auth-flow.ts
+templates/cmd-main.sh
+templates/manifest.template
+templates/privilege.package.json
+templates/resource.user-files.json
+templates/ui.gateway.json
+templates/ui.cgi.json
+scripts/validate_fnos_project.py
