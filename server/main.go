@@ -4,15 +4,10 @@
 package main
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 	"magicmail/config"
 	"magicmail/crypto"
 	"magicmail/database"
@@ -20,6 +15,12 @@ import (
 	"magicmail/oauth2"
 	"magicmail/routes"
 	"magicmail/sse"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/emersion/go-message"
 	"github.com/gofiber/fiber/v2"
@@ -81,14 +82,14 @@ func main() {
 	// 创建 Fiber 实例
 	// 关键配置：SSE 长连接需要较长的空闲超时和禁用写超时
 	app := fiber.New(fiber.Config{
-		AppName:            "Magicmail",
-		ServerHeader:       "Magicmail",
-		IdleTimeout:        60 * time.Second,   // 长连接最大空闲时间（心跳间隔15s，留足余量）
-		ReadTimeout:        10 * time.Second,    // 读取请求头超时
-		WriteTimeout:       0,                   // 禁用写超时（SSE 长连接需要持续写入）
-		ReadBufferSize:     4096,
-		WriteBufferSize:    4096,
-		DisableKeepalive:   false,               // 保持连接活跃
+		AppName:          "Magicmail",
+		ServerHeader:     "Magicmail",
+		IdleTimeout:      60 * time.Second, // 长连接最大空闲时间（心跳间隔15s，留足余量）
+		ReadTimeout:      10 * time.Second, // 读取请求头超时
+		WriteTimeout:     0,                // 禁用写超时（SSE 长连接需要持续写入）
+		ReadBufferSize:   4096,
+		WriteBufferSize:  4096,
+		DisableKeepalive: false, // 保持连接活跃
 	})
 
 	// 全局中间件
@@ -113,9 +114,40 @@ func main() {
 	sse.InitBroker()
 
 	// 启动 HTTP 服务
-	log.Printf("🚀 Magicmail 服务启动于 http://localhost:%d", cfg.Server.Port)
-	if err := app.Listen(cfg.Server.Addr()); err != nil {
+	// 监听方式由 cfg.Server.Listen 决定：
+	//   - tcp://HOST:PORT → 普通 TCP 监听（Docker / 旧部署）
+	//   - unix:///path/app.sock → Unix Socket（飞牛统一网关）
+	if err := listenAndServe(app, cfg); err != nil {
 		log.Fatalf("❌ 服务启动失败: %v", err)
+	}
+}
+
+// listenAndServe 按 Listen 配置启动服务，支持 TCP 与 Unix Socket 两种模式。
+func listenAndServe(app *fiber.App, cfg *config.Config) error {
+	listen := cfg.Server.Listen
+	switch {
+	case strings.HasPrefix(listen, "unix://"):
+		sockPath := strings.TrimPrefix(listen, "unix://")
+		// 启动前清理旧 socket 文件，避免 "address already in use"
+		_ = os.Remove(sockPath)
+		ln, err := net.Listen("unix", sockPath)
+		if err != nil {
+			return fmt.Errorf("创建 unix socket %s 失败: %w", sockPath, err)
+		}
+		// 确保 socket 文件可被网关进程读取
+		_ = os.Chmod(sockPath, 0666)
+		// 进程退出时清理 socket 文件
+		defer os.Remove(sockPath)
+		log.Printf("🚀 Magicmail 服务启动于 Unix Socket: %s", sockPath)
+		return app.Listener(ln)
+	case strings.HasPrefix(listen, "tcp://"):
+		addr := strings.TrimPrefix(listen, "tcp://")
+		log.Printf("🚀 Magicmail 服务启动于 http://%s", addr)
+		return app.Listen(addr)
+	default:
+		// 兜底：当作纯 host:port
+		log.Printf("🚀 Magicmail 服务启动于 http://%s", listen)
+		return app.Listen(listen)
 	}
 }
 

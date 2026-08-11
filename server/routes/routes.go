@@ -48,7 +48,7 @@ func Register(app *fiber.App, db *gorm.DB) {
 	pushPriv, pushPub, _ := EnsureVAPIDKeys(db)
 	pushSubject := services.GetVAPIDSubject()
 	pushService := services.NewPushService(db, pushPriv, pushPub, pushSubject)
-	services.InitGlobalPush(pushService) // 注册全局单例供外部调用
+	services.InitGlobalPush(pushService)                         // 注册全局单例供外部调用
 	notifier.RegisterPushNotifier(services.SendPushNotification) // 注册推送回调供 Worker 调用
 
 	// 开发环境自动创建默认管理员账号（仅在无用户时生效）
@@ -78,6 +78,16 @@ func Register(app *fiber.App, db *gorm.DB) {
 	authGroup.Post("/login", authHandler.Login)
 	authGroup.Post("/register", authHandler.Register)
 	authGroup.Get("/status", authHandler.Status)
+
+	// 飞牛统一网关登录入口（公开，但身份只信 X-Trim-* Header，伪造无效）
+	//   - /fnos/status   查询当前飞牛用户是否已绑定
+	//   - /fnos/login    已绑定用户免密登录（签发 JWT）
+	//   - /fnos/bind     绑定已有账号（校验原密码）
+	//   - /fnos/register 注册新账号并绑定
+	authGroup.Get("/fnos/status", authHandler.FnosStatus)
+	authGroup.Post("/fnos/login", authHandler.FnosLogin)
+	authGroup.Post("/fnos/bind", authHandler.FnosBind)
+	authGroup.Post("/fnos/register", authHandler.FnosRegister)
 
 	// ============================================================
 	//  受保护接口：需要 JWT Token
@@ -110,8 +120,8 @@ func Register(app *fiber.App, db *gorm.DB) {
 	// ============================================================
 	//  SSE 实时推送 API（需认证）- 必须在 /:id 之前注册，否则 "stream" 会被 :id 捕获
 	// ============================================================
-	mails.Get("/stream", sse.StreamHandler)                // SSE 邮件更新推送流
-	mails.Get("/stream/health", sse.HealthCheckHandler)     // SSE 服务健康检查
+	mails.Get("/stream", sse.StreamHandler)             // SSE 邮件更新推送流
+	mails.Get("/stream/health", sse.HealthCheckHandler) // SSE 服务健康检查
 
 	// ============================================================
 	//  邮件管理 API
@@ -164,10 +174,10 @@ func Register(app *fiber.App, db *gorm.DB) {
 	// ============================================================
 	api.Get("/push/vapid-public-key", pushHandler.GetVAPIDPublicKey) // 公开：获取 VAPID 公钥
 	push := protected.Group("/push")
-	push.Post("/subscribe", pushHandler.Subscribe)       // 订阅推送
-	push.Post("/unsubscribe", pushHandler.Unsubscribe)   // 取消订阅
+	push.Post("/subscribe", pushHandler.Subscribe)            // 订阅推送
+	push.Post("/unsubscribe", pushHandler.Unsubscribe)        // 取消订阅
 	push.Get("/subscriptions", pushHandler.ListSubscriptions) // 列出订阅
-	push.Post("/test", pushHandler.SendTest)             // 测试推送
+	push.Post("/test", pushHandler.SendTest)                  // 测试推送
 
 	// ============================================================
 	//  管理员专属接口（需认证 + 管理员权限）
@@ -243,8 +253,14 @@ func EnsureVAPIDKeys(db *gorm.DB) (*ecdsa.PrivateKey, []byte, error) {
 		usePub, usePriv := pubBase64, privBase64
 		source := "自动生成"
 
-		if envPub != "" { usePub = envPub; source = "环境变量" }
-		if envPriv != "" { usePriv = envPriv; source = "环境变量" }
+		if envPub != "" {
+			usePub = envPub
+			source = "环境变量"
+		}
+		if envPriv != "" {
+			usePriv = envPriv
+			source = "环境变量"
+		}
 
 		appCfg := models.AppConfig{
 			JWTSecret:       "", // 由 EnsureSecuritySecrets 处理
@@ -289,8 +305,12 @@ func EnsureVAPIDKeys(db *gorm.DB) (*ecdsa.PrivateKey, []byte, error) {
 		privBase64 := base64.StdEncoding.EncodeToString(privDER)
 
 		usePub, usePriv := pubBase64, privBase64
-		if envPub != "" { usePub = envPub }
-		if envPriv != "" { usePriv = envPriv }
+		if envPub != "" {
+			usePub = envPub
+		}
+		if envPriv != "" {
+			usePriv = envPriv
+		}
 
 		result := db.Model(&cfg).Updates(map[string]interface{}{
 			"vapid_public_key":  usePub,

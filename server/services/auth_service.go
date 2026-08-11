@@ -37,6 +37,11 @@ var (
 	ErrRegistrationClosed = errors.New("公开注册已关闭，仅管理员可创建账号")
 	ErrCannotDeleteSelf   = errors.New("不能删除当前登录的管理员账号")
 	ErrUserNotFound       = errors.New("用户不存在")
+	// 飞牛绑定相关
+	ErrFnosUIDEmpty       = errors.New("飞牛用户标识缺失，无法绑定")
+	ErrFnosAlreadyBound   = errors.New("该飞牛账号已绑定其他 Magicmail 账号")
+	ErrAccountBoundByFnos = errors.New("该 Magicmail 账号已被其他飞牛账号绑定")
+	ErrFnosNotBound       = errors.New("该飞牛账号尚未绑定 Magicmail 账号")
 )
 
 // HashPassword 对密码进行 bcrypt 哈希
@@ -101,6 +106,100 @@ func (s *AuthService) Login(req models.LoginRequest) (*models.LoginResponse, err
 	}
 
 	return &models.LoginResponse{Token: token, Username: user.Username, Role: user.Role}, nil
+}
+
+// GetFnosBind 根据飞牛用户 ID 查询是否已绑定 magicmail 账号
+//   - 已绑定 → 返回该用户（调用方据此签发 JWT 免密登录）
+//   - 未绑定 → 返回 (nil, nil)
+func (s *AuthService) GetFnosBind(fnosUID string) (*models.User, error) {
+	if fnosUID == "" {
+		return nil, ErrFnosUIDEmpty
+	}
+	var user models.User
+	result := s.db.Where("fnos_uid = ?", fnosUID).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+// FnosLogin 已绑定用户免密登录：直接依据飞牛身份签发 JWT
+//   - 未绑定（user==nil）返回 ErrFnosUIDEmpty 语义的未绑定错误，由调用方转 404/引导绑定
+func (s *AuthService) FnosLogin(fnosUID string) (*models.User, error) {
+	user, err := s.GetFnosBind(fnosUID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrFnosNotBound
+	}
+	return user, nil
+}
+
+// BindExistingByFnOS 将已有 magicmail 账号绑定到飞牛身份（校验原密码后写入 fnos_uid）
+//   - 一对一约束：fnos_uid 全局唯一；目标账号的 fnos_uid 必须为空（未被占用）
+func (s *AuthService) BindExistingByFnOS(fnosUID, username, password string) (*models.User, error) {
+	if fnosUID == "" {
+		return nil, ErrFnosUIDEmpty
+	}
+	// 该飞牛身份是否已绑定过其他账号
+	if existing, err := s.GetFnosBind(fnosUID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return nil, ErrFnosAlreadyBound
+	}
+
+	var user models.User
+	if err := s.db.Where("username = ?", username).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
+	}
+	if user.FnosUID != "" {
+		return nil, ErrAccountBoundByFnos
+	}
+	if err := s.VerifyPassword(password, user.PasswordHash); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	if err := s.db.Model(&user).Update("fnos_uid", fnosUID).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// RegisterByFnOS 注册新 magicmail 账号并绑定飞牛身份
+//   - 复用 Register 的「首个用户为 admin / 受开放注册开关约束」逻辑
+//   - 注册成功后写入 fnos_uid（一对一约束）
+func (s *AuthService) RegisterByFnOS(fnosUID, username, password string) (*models.User, error) {
+	if fnosUID == "" {
+		return nil, ErrFnosUIDEmpty
+	}
+	// 该飞牛身份是否已绑定过其他账号
+	if existing, err := s.GetFnosBind(fnosUID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return nil, ErrFnosAlreadyBound
+	}
+
+	// 注册（含开放注册校验）。复用 createUser 不便，这里走 Register 逻辑后补 fnos_uid。
+	regReq := models.RegisterRequest{Username: username, Password: password}
+	if err := s.Register(regReq); err != nil {
+		return nil, err
+	}
+	// 注册成功后查回该用户
+	var user models.User
+	if err := s.db.Where("username = ?", username).First(&user).Error; err != nil {
+		return nil, err
+	}
+	if err := s.db.Model(&user).Update("fnos_uid", fnosUID).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // createUser 内部辅助：创建用户并写入密码哈希

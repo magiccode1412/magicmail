@@ -69,6 +69,91 @@
 
       <!-- 右侧表单区 -->
       <div class="login-form-area">
+
+        <!-- 飞牛统一网关登录入口（仅网关环境可用） -->
+        <div v-if="authStore.gatewayAvailable && !authStore.isLoggedIn" class="fnos-panel" :class="{ 'is-binding': fnosMode }">
+          <div v-if="!fnosMode">
+            <!-- 已绑定：一键免密登录 -->
+            <button v-if="authStore.fnosBound" type="button" class="btn-fnos" @click="fnosQuickLogin">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              以飞牛账号「{{ authStore.fnosUsername }}」登录
+            </button>
+            <!-- 未绑定：引导绑定/注册 -->
+            <template v-else>
+              <p class="fnos-tip">检测到飞牛登录，请绑定或注册 Magicmail 账号</p>
+              <button type="button" class="btn-fnos" @click="fnosMode = 'register'">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                使用飞牛账号注册新账号
+              </button>
+              <button type="button" class="btn-fnos btn-fnos-ghost" @click="fnosMode = 'bind'">
+                绑定已有 Magicmail 账号
+              </button>
+            </template>
+          </div>
+
+          <!-- 绑定已有账号 -->
+          <div v-else-if="fnosMode === 'bind'" class="fnos-form">
+            <h3 class="fnos-title">绑定已有账号</h3>
+            <div class="field-group" :class="{ error: errors.fnosUser }">
+              <label class="field-label">用户名</label>
+              <input v-model="fnosForm.username" type="text" placeholder="Magicmail 用户名" autocomplete="username" />
+              <span v-if="errors.fnosUser" class="field-error">{{ errors.fnosUser }}</span>
+            </div>
+            <div class="field-group" :class="{ error: errors.fnosPwd }">
+              <label class="field-label">密码</label>
+              <input v-model="fnosForm.password" type="password" placeholder="Magicmail 密码" autocomplete="current-password" />
+              <span v-if="errors.fnosPwd" class="field-error">{{ errors.fnosPwd }}</span>
+            </div>
+            <div v-if="fnosError" class="form-error-bar">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M7 4v3M7 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              {{ fnosError }}
+            </div>
+            <button type="button" class="btn-submit" :disabled="fnosSubmitting" @click="handleFnosBind">
+              <span v-if="fnosSubmitting" class="btn-spinner"></span>
+              <template v-else>绑 定 并 登 录</template>
+            </button>
+            <button type="button" class="btn-switch-mode" @click="resetFnosMode">返回</button>
+          </div>
+
+          <!-- 注册新账号 -->
+          <div v-else-if="fnosMode === 'register'" class="fnos-form">
+            <h3 class="fnos-title">注册新账号</h3>
+            <div class="field-group" :class="{ error: errors.fnosUser }">
+              <label class="field-label">用户名</label>
+              <input v-model="fnosForm.username" type="text" placeholder="设置用户名（3-32 位）" autocomplete="new-username" />
+              <span v-if="errors.fnosUser" class="field-error">{{ errors.fnosUser }}</span>
+            </div>
+            <div class="field-group" :class="{ error: errors.fnosPwd }">
+              <label class="field-label">密码</label>
+              <input v-model="fnosForm.password" type="password" placeholder="至少 6 位密码" autocomplete="new-password" />
+              <span v-if="errors.fnosPwd" class="field-error">{{ errors.fnosPwd }}</span>
+            </div>
+            <div v-if="fnosError" class="form-error-bar">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/>
+                <path d="M7 4v3M7 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              </svg>
+              {{ fnosError }}
+            </div>
+            <button type="button" class="btn-submit btn-register" :disabled="fnosSubmitting" @click="handleFnosRegister">
+              <span v-if="fnosSubmitting" class="btn-spinner"></span>
+              <template v-else>创 建 并 登 录</template>
+            </button>
+            <button type="button" class="btn-switch-mode" @click="resetFnosMode">返回</button>
+          </div>
+
+          <div v-if="!fnosMode" class="fnos-divider"><span>或使用原账号登录</span></div>
+        </div>
+
         <transition name="form-slide" mode="out-in">
           <!-- 登录表单 -->
           <div v-if="!isRegister" key="login" class="form-panel">
@@ -282,7 +367,7 @@ const DEV_DEFAULT_PASSWORD = import.meta.env.DEV ? 'admin123' : ''
 // 表单状态
 const form = reactive({ username: DEV_DEFAULT_USERNAME, password: DEV_DEFAULT_PASSWORD })
 const regForm = reactive({ username: '', password: '', confirmPassword: '' })
-const errors = reactive({ username: '', password: '', confirmPwd: '' })
+const errors = reactive({ username: '', password: '', confirmPwd: '', fnosUser: '', fnosPwd: '' })
 const errorMsg = ref('')
 const submitting = ref(false)
 const showPassword = ref(false)
@@ -290,6 +375,12 @@ const showRegPassword = ref(false)
 const focused = ref('')
 const usernameInput = ref(null)
 const passwordInput = ref(null)
+
+// 飞牛网关登录状态
+const fnosMode = ref('') // '' | 'bind' | 'register'
+const fnosForm = reactive({ username: '', password: '' })
+const fnosError = ref('')
+const fnosSubmitting = ref(false)
 
 // 模式切换：登录 / 注册
 const isRegister = ref(authStore.setupRequired)
@@ -363,6 +454,74 @@ async function handleRegister() {
     errorMsg.value = e.message || '注册失败，请重试'
   } finally {
     submitting.value = false
+  }
+}
+
+// ---- 飞牛网关登录 ----
+function resetFnosMode() {
+  fnosMode.value = ''
+  fnosForm.username = ''
+  fnosForm.password = ''
+  errors.fnosUser = ''
+  errors.fnosPwd = ''
+  fnosError.value = ''
+}
+
+// 已绑定用户：一键免密登录（后端依据 X-Trim-Userid 直接签发 JWT）
+async function fnosQuickLogin() {
+  fnosSubmitting.value = true
+  fnosError.value = ''
+  try {
+    await authStore.doFnosLogin()
+    router.push('/')
+  } catch (e) {
+    fnosError.value = e.message || '飞牛登录失败，请重试'
+    fnosMode.value = 'bind'
+  } finally {
+    fnosSubmitting.value = false
+  }
+}
+
+// 绑定已有账号
+async function handleFnosBind() {
+  errors.fnosUser = ''
+  errors.fnosPwd = ''
+  if (!fnosForm.username.trim()) { errors.fnosUser = '请输入用户名'; return }
+  if (!fnosForm.password) { errors.fnosPwd = '请输入密码'; return }
+
+  fnosSubmitting.value = true
+  fnosError.value = ''
+  try {
+    await authStore.doFnosBind({ username: fnosForm.username, password: fnosForm.password })
+    router.push('/')
+  } catch (e) {
+    fnosError.value = e.message || '绑定失败，请重试'
+  } finally {
+    fnosSubmitting.value = false
+  }
+}
+
+// 注册新账号并绑定
+async function handleFnosRegister() {
+  errors.fnosUser = ''
+  errors.fnosPwd = ''
+  let hasError = false
+  if (!fnosForm.username.trim()) { errors.fnosUser = '请输入用户名'; hasError = true }
+  else if (fnosForm.username.length < 3) { errors.fnosUser = '用户名至少 3 位'; hasError = true }
+  else if (fnosForm.username.length > 32) { errors.fnosUser = '用户名不超过 32 位'; hasError = true }
+  if (!fnosForm.password) { errors.fnosPwd = '请输入密码'; hasError = true }
+  else if (fnosForm.password.length < 6) { errors.fnosPwd = '密码至少 6 位'; hasError = true }
+  if (hasError) return
+
+  fnosSubmitting.value = true
+  fnosError.value = ''
+  try {
+    await authStore.doFnosRegister({ username: fnosForm.username, password: fnosForm.password })
+    router.push('/')
+  } catch (e) {
+    fnosError.value = e.message || '注册失败，请重试'
+  } finally {
+    fnosSubmitting.value = false
   }
 }
 
@@ -865,5 +1024,81 @@ onMounted(async () => {
   .login-form-area { padding: 28px 24px 24px; }
   .brand-title { font-size: 24px; }
   .form-title { font-size: 20px; }
+}
+
+/* ====== 飞牛网关登录面板 ====== */
+.fnos-panel {
+  margin-bottom: 24px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(79, 110, 247, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(79, 110, 247, 0.08), rgba(6, 182, 212, 0.06));
+}
+[data-theme="light"] .fnos-panel {
+  background: rgba(79, 110, 247, 0.06);
+  border-color: rgba(79, 110, 247, 0.22);
+}
+.fnos-tip {
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0 0 12px;
+  text-align: center;
+}
+.btn-fnos {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: linear-gradient(135deg, #06B6D4, #0891B2);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 16px rgba(6, 182, 212, 0.3);
+}
+.btn-fnos:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(6, 182, 212, 0.42);
+}
+.btn-fnos-ghost {
+  margin-top: 10px;
+  color: var(--text-secondary, #94a3b8);
+  background: transparent;
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.14));
+  box-shadow: none;
+}
+.btn-fnos-ghost:hover {
+  color: var(--text-primary, #f1f5f9);
+  border-color: var(--primary-500, #4F6EF7);
+  box-shadow: none;
+  transform: none;
+}
+.fnos-form .fnos-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+  margin: 0 0 14px;
+  text-align: center;
+}
+.fnos-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #64748b);
+}
+.fnos-divider::before,
+.fnos-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light, rgba(255, 255, 255, 0.1));
 }
 </style>

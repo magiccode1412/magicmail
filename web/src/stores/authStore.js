@@ -12,6 +12,10 @@ export const useAuthStore = defineStore('auth', () => {
   const setupRequired = ref(false)
   const openRegistration = ref(false)
   const initialized = ref(false)
+  // 飞牛统一网关登录状态
+  const gatewayAvailable = ref(false) // 是否处于飞牛网关环境（请求带 X-Trim-Userid）
+  const fnosBound = ref(false)         // 当前飞牛用户是否已绑定 magicmail 账号
+  const fnosUsername = ref('')         // 已绑定时返回的 magicmail 用户名
 
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => role.value === 'admin')
@@ -39,6 +43,16 @@ export const useAuthStore = defineStore('auth', () => {
         setupRequired.value = true
       }
     }
+    // 探测飞牛网关状态（无论是否登录都探测，用于显示飞牛登录入口）
+    try {
+      const fnos = await authApi.fnosStatus()
+      gatewayAvailable.value = !!fnos.gateway
+      fnosBound.value = !!fnos.bound
+      fnosUsername.value = fnos.username || ''
+    } catch (_) {
+      gatewayAvailable.value = false
+      fnosBound.value = false
+    }
     initialized.value = true
   }
 
@@ -53,6 +67,33 @@ export const useAuthStore = defineStore('auth', () => {
     if (res.token) {
       setToken(res.token, res.username, res.role)
     }
+    return res
+  }
+
+  // 飞牛网关：绑定已有账号（校验原密码）
+  async function doFnosBind(bindData) {
+    const res = await authApi.fnosBind(bindData)
+    setToken(res.token, res.username, res.role)
+    fnosBound.value = true
+    fnosUsername.value = res.username || ''
+    return res
+  }
+
+  // 飞牛网关：注册新账号并绑定
+  async function doFnosRegister(regData) {
+    const res = await authApi.fnosRegister(regData)
+    setToken(res.token, res.username, res.role)
+    fnosBound.value = true
+    fnosUsername.value = res.username || ''
+    return res
+  }
+
+  // 飞牛网关：已绑定用户免密登录
+  async function doFnosLogin() {
+    const res = await authApi.fnosLogin()
+    setToken(res.token, res.username, res.role)
+    fnosBound.value = true
+    fnosUsername.value = res.username || ''
     return res
   }
 
@@ -85,6 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token, username, role, isLoggedIn, isAdmin,
     setupRequired, openRegistration, initialized,
-    init, doLogin, doRegister, logout, parseUsername,
+    gatewayAvailable, fnosBound, fnosUsername,
+    init, doLogin, doRegister, doFnosBind, doFnosRegister, doFnosLogin, logout, parseUsername,
   }
 })

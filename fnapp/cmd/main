@@ -20,9 +20,8 @@ DATA_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
 # Go 二进制文件路径
 APP_BIN="${TRIM_APPDEST}/server/magicmail"
 
-# 服务端口（从 wizard 获取，为空时兜底 8080）
-PORT="${wizard_app_port}"
-[ -z "${PORT}" ] && PORT=23232
+# 统一网关 Unix Socket 路径（飞牛安装必定走 Socket）
+SOCK="${TRIM_APPDEST}/app.sock"
 
 # 数据库路径
 DB_PATH="${DATA_DIR}/magicmail.db"
@@ -67,7 +66,7 @@ diag() {
         echo ""
         echo "--- [DEBUG] 应用计算变量 ---"
         echo "DATA_DIR            = [${DATA_DIR}]"
-        echo "PORT                = [${PORT}]"
+        echo "SOCK                = [${SOCK}]"
         echo "DB_PATH             = [${DB_PATH}]"
         echo "APP_BIN             = [${APP_BIN}]"
         echo ""
@@ -140,8 +139,12 @@ diag() {
         df -h / 2>/dev/null
         df -h "${TRIM_PKGVAR}" 2>/dev/null
         echo ""
-        echo "--- [DEBUG] 端口 ${PORT} 状态 ---"
-        ss -tlnp 2>/dev/null | grep ":${PORT}" || echo "Port ${PORT} appears free"
+        echo "--- [DEBUG] Unix Socket ${SOCK} 状态 ---"
+        if [ -S "${SOCK}" ]; then
+            ls -la "${SOCK}"
+        else
+            echo "Socket ${SOCK} not present"
+        fi
         echo ""
         echo "--- [DEBUG] 进程检查 ---"
         ps aux | grep -i magicmail 2>/dev/null | grep -v grep || echo "No magicmail process found"
@@ -219,27 +222,23 @@ start_process() {
         return 1
     fi
 
-    # 3. 检查端口是否被占用
-    log_msg "[DEBUG] Checking port ${PORT} availability"
-    if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-        log_msg "ERROR: Port ${PORT} already in use"
-        ss -tlnp 2>/dev/null | grep ":${PORT}" >> "${LOG_FILE}" 2>&1
-        return 1
+    # 3. 检查 Unix Socket 是否已被占用（残留文件且对应进程存活则报错）
+    log_msg "[DEBUG] Checking socket ${SOCK} availability"
+    if [ -S "${SOCK}" ]; then
+        log_msg "WARN: Stale socket ${SOCK} exists, will be removed by app on start"
     fi
 
     log_msg "Starting Magicmail..."
-    log_msg "PORT=${PORT} DB_PATH=${DB_PATH} DATA_DIR=${DATA_DIR}"
+    log_msg "SOCK=${SOCK} DB_PATH=${DB_PATH} DATA_DIR=${DATA_DIR}"
     log_msg "APP_BIN=${APP_BIN}"
 
-    # 4. 启动进程（增强日志）
-    #    MAGICMAIL_DSN: 数据库路径（Go 代码识别的环境变量）
-    #    MAGICMAIL_PORT: 监听端口
-    #    MAGICMAIL_HOST: 监听地址
-    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, PORT=${PORT}"
+    # 4. 启动进程（飞牛统一网关模式：监听 Unix Socket）
+    #    MAGICMAIL_DSN:     数据库路径（Go 代码识别的环境变量）
+    #    MAGICMAIL_LISTEN:  unix:// 路径，告知 Go 后端监听 Unix Socket 而非 TCP
+    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, LISTEN=unix://${SOCK}"
     
     export MAGICMAIL_DSN="${DB_PATH}"
-    export MAGICMAIL_PORT="${PORT}"
-    export MAGICMAIL_HOST="0.0.0.0"
+    export MAGICMAIL_LISTEN="unix://${SOCK}"
     
     nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
     local launch_rc=$?
@@ -256,8 +255,7 @@ start_process() {
     echo "Command: nohup ${APP_BIN}" >> "${DIAG_FILE}" 2>/dev/null
     echo "Environment:" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_DSN=${MAGICMAIL_DSN}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_PORT=${MAGICMAIL_PORT}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_HOST=${MAGICMAIL_HOST}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_LISTEN=${MAGICMAIL_LISTEN}" >> "${DIAG_FILE}" 2>/dev/null
 
     # 5. 等待确认启动
     local count=0
@@ -283,30 +281,29 @@ start_process() {
             return 1
         fi
 
-        # 检查端口是否已监听
-        if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-            log_msg "SUCCESS: Process is listening on port ${PORT}"
+        # 检查 Unix Socket 是否已创建
+        if [ -S "${SOCK}" ]; then
+            log_msg "SUCCESS: Process is listening on socket ${SOCK}"
             return 0
         fi
         
         # [DEBUG] 每3秒记录一次进程状态
         if [ $((count % 3)) -eq 0 ]; then
-            log_msg "[DEBUG] Port not yet listening, process still alive (PID=${pid})"
+            log_msg "[DEBUG] Socket not yet created, process still alive (PID=${pid})"
         fi
     done
 
-    # 6. 进程还活着但端口未监听？记录一下继续
+    # 6. 进程还活着但 socket 未创建？记录一下继续
     if check_process "${pid}"; then
-        log_msg "WARNING: Process running but port ${PORT} not yet listening after ${count}s"
+        log_msg "WARNING: Process running but socket ${SOCK} not yet created after ${count}s"
         
         # [调试] 获取进程更多信息
-        echo "=== PORT TIMEOUT REPORT ===" >> "${DIAG_FILE}" 2>/dev/null
+        echo "=== SOCKET TIMEOUT REPORT ===" >> "${DIAG_FILE}" 2>/dev/null
         echo "PID: ${pid}" >> "${DIAG_FILE}" 2>/dev/null
         echo "Waited: ${count}s" >> "${DIAG_FILE}" 2>/dev/null
         echo "Process info:" >> "${DIAG_FILE}" 2>/dev/null
         ps aux | grep "${pid}" | grep -v grep >> "${DIAG_FILE}" 2>/dev/null
-        echo "All network listeners:" >> "${DIAG_FILE}" 2>/dev/null
-        ss -tlnp 2>/dev/null >> "${DIAG_FILE}" 2>/dev/null || true
+        ls -la "${SOCK}" 2>/dev/null >> "${DIAG_FILE}" 2>/dev/null || echo "socket not found" >> "${DIAG_FILE}" 2>/dev/null
         
         return 0
     else
@@ -352,7 +349,7 @@ stop_process() {
             kill -KILL "${pid}"
             sleep 1
         fi
-        rm -f "${PID_FILE}"
+        rm -f "${PID_FILE}" "${SOCK}"
         log_msg "Stopped"
     else
         log_msg "No PID file found"

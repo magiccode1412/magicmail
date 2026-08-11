@@ -4,10 +4,10 @@
             "title": "魔法邮箱",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
-            "protocol": "",
-            "port": "${wizard_app_port}",
+            "gatewayPrefix": "/app/magicmail",
+            "gatewaySocket": "app.sock",
             "url": "/",
-            "allUsers": false
+            "allUsers": true
         }
     }
 }

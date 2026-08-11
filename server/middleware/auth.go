@@ -77,3 +77,19 @@ func AdminRequired() fiber.Handler {
 		return c.Next()
 	}
 }
+
+// GatewayIdentity 从飞牛统一网关注入的 Header 中读取当前登录的飞牛用户身份。
+//
+// ⚠️ 安全约束：此函数仅在「由统一网关前缀进入」的路由（/api/v1/auth/fnos/*）中调用。
+// 普通 TCP 端口路由（Docker / 直连）即使伪造 X-Trim-Userid 也不应调用本函数，
+// 因此伪造的网关 Header 在非网关路由下完全无效。
+//
+// 返回 (fnosUID, username, ok)：ok=false 表示当前并非飞牛网关环境（无 X-Trim-Userid）。
+func GatewayIdentity(c *fiber.Ctx) (fnosUID string, username string, ok bool) {
+	fnosUID = c.Get("X-Trim-Userid")
+	if fnosUID == "" {
+		return "", "", false
+	}
+	username = c.Get("X-Trim-Username")
+	return fnosUID, username, true
+}

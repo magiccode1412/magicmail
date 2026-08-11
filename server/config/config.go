@@ -20,10 +20,12 @@ type Config struct {
 
 // ServerConfig HTTP 服务配置
 type ServerConfig struct {
-	Port int    // 监听端口，默认 8080
-	Host string // 监听地址，默认 0.0.0.0
+	Port   int    // 监听端口，默认 8080（仅 TCP 模式使用）
+	Host   string // 监听地址，默认 0.0.0.0（仅 TCP 模式使用）
+	Listen string // 完整监听地址：空或 "tcp://HOST:PORT"（默认 TCP）；"unix:///path/app.sock" 走 Unix Socket（飞牛统一网关）
 }
 
+// Addr 返回 TCP 监听地址（兼容旧逻辑/Docker 部署）
 func (s ServerConfig) Addr() string {
 	return s.Host + ":" + strconv.Itoa(s.Port)
 }
@@ -35,15 +37,15 @@ type DatabaseConfig struct {
 
 // IMAPConfig IMAP 同步配置
 type IMAPConfig struct {
-	PollInterval     int   // 定时轮询间隔（秒），默认 300（5分钟）
-	IDLEEnabled      bool  // 是否启用 IDLE，默认 true
-	MaxConcurrent    int   // 最大并发连接数，默认 10
-	SyncBatchSize    int   // 每次拉取邮件数量上限，默认 50
+	PollInterval      int   // 定时轮询间隔（秒），默认 300（5分钟）
+	IDLEEnabled       bool  // 是否启用 IDLE，默认 true
+	MaxConcurrent     int   // 最大并发连接数，默认 10
+	SyncBatchSize     int   // 每次拉取邮件数量上限，默认 50
 	MaxAttachmentSize int64 // 单附件大小上限（MB），默认 50，0=不限制
-	MinDiskFreeMB    int64 // 最小剩余磁盘空间（MB），默认 1024（1GB）
-	CacheThresholdMB int64 // 附件缓存阈值（MB），默认 2，小于此值立即缓存
-	CacheExpireDays  int   // 缓存过期天数，默认 30 天
-	AutoCacheEnabled bool  // 是否启用自动缓存（懒加载首次下载后缓存到本地），默认 false
+	MinDiskFreeMB     int64 // 最小剩余磁盘空间（MB），默认 1024（1GB）
+	CacheThresholdMB  int64 // 附件缓存阈值（MB），默认 2，小于此值立即缓存
+	CacheExpireDays   int   // 缓存过期天数，默认 30 天
+	AutoCacheEnabled  bool  // 是否启用自动缓存（懒加载首次下载后缓存到本地），默认 false
 }
 
 // GetMaxAttachmentSize 获取单附件大小上限（字节）
@@ -86,7 +88,7 @@ func (c *IMAPConfig) IsAutoCacheEnabled() bool {
 // SecurityConfig 安全配置
 type SecurityConfig struct {
 	EncryptionKey string // 密码加密密钥（从环境变量读取）
-	JWTSecret      string // JWT 密钥（预留）
+	JWTSecret     string // JWT 密钥（预留）
 }
 
 // OAuth2Config OAuth2 全局配置（混合模式 Client ID 管理）
@@ -163,10 +165,20 @@ func Load() *Config {
 		dsn = v
 	}
 
+	// 监听方式：
+	//   - 未设置 MAGICMAIL_LISTEN → 默认 TCP（兼容 Docker/旧部署），由 MAGICMAIL_HOST:MAGICMAIL_PORT 决定
+	//   - 设置 unix:///path/app.sock → Unix Socket（飞牛统一网关，由 cmd/main 传入）
+	//   - 也可显式设置 tcp://HOST:PORT 覆盖默认
+	listen := getEnv("MAGICMAIL_LISTEN", "")
+	if listen == "" {
+		listen = "tcp://" + getEnv("MAGICMAIL_HOST", "0.0.0.0") + ":" + strconv.Itoa(port)
+	}
+
 	return &Config{
 		Server: ServerConfig{
-			Port: port,
-			Host: getEnv("MAGICMAIL_HOST", "0.0.0.0"),
+			Port:   port,
+			Host:   getEnv("MAGICMAIL_HOST", "0.0.0.0"),
+			Listen: listen,
 		},
 		Database: DatabaseConfig{
 			DSN: dsn,
@@ -187,7 +199,7 @@ func Load() *Config {
 			//   - 默认自动生成随机密钥并持久化到数据库
 			//   - 可通过环境变量 MAGICMAIL_JWT_SECRET / MAGICMAIL_ENCRYPT_KEY 显式指定（优先级更高）
 			EncryptionKey: "",
-			JWTSecret:      "",
+			JWTSecret:     "",
 		},
 		OAuth2: OAuth2Config{
 			MicrosoftClientID: getEnv("MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID", ""),
