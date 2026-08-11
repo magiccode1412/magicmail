@@ -6,7 +6,7 @@
             "type": "iframe",
             "gatewayPrefix": "/app/magicmail",
             "gatewaySocket": "app.sock",
-            "url": "/",
+            "url": "/app/magicmail",
             "allUsers": true
         }
     }

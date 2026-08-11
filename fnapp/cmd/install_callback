@@ -14,7 +14,6 @@ DATA_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
     echo "TRIM_DATA_SHARE_PATHS = ${TRIM_DATA_SHARE_PATHS}"
     echo "DATA_DIR              = ${DATA_DIR}"
     echo "TRIM_SERVICE_PORT     = ${TRIM_SERVICE_PORT}"
-    echo "wizard_app_port       = ${wizard_app_port}"
     echo ""
     echo "--- app 目录内容 ---"
     ls -laR "${TRIM_APPDEST}" 2>/dev/null
