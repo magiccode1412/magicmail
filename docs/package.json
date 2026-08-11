@@ -5,7 +5,8 @@
     "scripts": {
         "dev": "vitepress dev",
         "build": "vitepress build",
-        "preview": "vitepress preview"
+        "preview": "vitepress preview",
+        "deploy": "export VITEPRESS_BASE=/magicmail/ && vitepress build && cd .vitepress/dist && git add . && git commit -m 'deploy: update site static files' && git push origin gh-pages"
     },
     "dependencies": {
         "pnpm": "^10.34.1",
