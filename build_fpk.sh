@@ -24,6 +24,21 @@ FNAPP_SERVER_DIR="${SCRIPT_DIR}/fnapp/app/server"
 FNAPP_DIR="${SCRIPT_DIR}/fnapp"
 BINARY_NAME="magicmail"
 
+# 飞牛统一网关基础路径前缀。
+# 必须与 fnapp/manifest 的 gatewayPrefix、fnapp/cmd/main 注入的
+# MAGICMAIL_BASE_PATH 保持一致（默认 /app/magicmail）。
+# 允许外部环境变量覆盖（如构建其他前缀的子路径部署）。
+export BASE_URL="${BASE_URL:-/app/magicmail}"
+
+# 后端运行时基础路径（仅用于文档/校验提示；实际由 fnapp/cmd/main 在
+# 运行时注入 MAGICMAIL_BASE_PATH，这里保持一致以便人工核对）。
+FNAS_BACKEND_BASE_PATH="/app/magicmail"
+
+print_env_summary() {
+    echo -e "${BLUE}  前端 BASE_URL        = ${BASE_URL}${NC}"
+    echo -e "${BLUE}  后端 MAGICMAIL_BASE_PATH (运行时) = ${FNAS_BACKEND_BASE_PATH}${NC}"
+}
+
 print_banner() {
     echo -e "${CYAN}${BOLD}"
     echo "╔══════════════════════════════════════════╗"
@@ -34,17 +49,20 @@ print_banner() {
 
 # Step 1: 执行 build.sh 进行单平台构建 (linux amd64)
 step1_build() {
-    echo -e "${BLUE}▶ [Step 1/3] 执行 build.sh linux amd64 构建...${NC}"
-    
+    echo -e "${BLUE}▶ [Step 1/3] 执行 build.sh linux amd64 构建（含前端，BASE_URL=${BASE_URL}）...${NC}"
+    print_env_summary
+
     cd "${SCRIPT_DIR}"
+    # BASE_URL 已 export，build.sh 内部 pnpm build 会继承该环境变量，
+    # 使前端产物以 /app/magicmail 为 base 打包并嵌入 Go 二进制。
     ./build.sh linux amd64
-    
+
     # 检查构建产物是否存在
     if [ ! -f "${BIN_DIR}/${BINARY_NAME}" ]; then
         echo -e "${RED}✗ 构建产物不存在: ${BIN_DIR}/${BINARY_NAME}${NC}"
         exit 1
     fi
-    
+
     echo -e "${GREEN}  ✅ 单平台构建完成${NC}"
 }
 

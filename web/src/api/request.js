@@ -4,8 +4,9 @@
 import axios from 'axios'
 
 // 创建 axios 实例
+// 飞牛统一网关等场景通过 Vite base 注入前缀（如 /app/magicmail）
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: import.meta.env.BASE_URL + 'api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'

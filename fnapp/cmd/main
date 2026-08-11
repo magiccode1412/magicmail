@@ -239,6 +239,10 @@ start_process() {
     
     export MAGICMAIL_DSN="${DB_PATH}"
     export MAGICMAIL_LISTEN="unix://${SOCK}"
+    # 与前端 BASE_URL、飞牛网关 gatewayPrefix（manifest 中的 /app/magicmail）保持一致；
+    # 后端据此注册带前缀的路由，兼容网关透传或剥离前缀两种行为。
+    # 注意：修改此处需同步修改 fnapp/manifest 的 gatewayPrefix 与前端 vite BASE_URL。
+    export MAGICMAIL_BASE_PATH="/app/magicmail"
     
     nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
     local launch_rc=$?
@@ -256,6 +260,7 @@ start_process() {
     echo "Environment:" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_DSN=${MAGICMAIL_DSN}" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_LISTEN=${MAGICMAIL_LISTEN}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_BASE_PATH=${MAGICMAIL_BASE_PATH}" >> "${DIAG_FILE}" 2>/dev/null
 
     # 5. 等待确认启动
     local count=0

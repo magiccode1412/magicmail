@@ -52,8 +52,9 @@ export function useSSE(options = {}) {
     }
 
     // 构建带认证的 SSE URL
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
-    const url = `${baseUrl}/api/v1/mails/stream?token=${encodeURIComponent(token)}`
+    // VITE_API_BASE_URL 优先（自定义跨域后端），否则使用 Vite base 前缀（如飞牛网关 /app/magicmail）
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL
+    const url = `${baseUrl}api/v1/mails/stream?token=${encodeURIComponent(token)}`
 
     try {
       const es = new EventSource(url, { withCredentials: true })

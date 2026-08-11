@@ -1,4 +1,4 @@
-<!-- 
+xu'yao<!-- 
   SPDX-License-Identifier: AGPL-3.0-or-later
   Copyright (C) 2026  magiccode (魔法代码)
 -->
@@ -131,7 +131,7 @@ const {
   checkUpdate: doCheckUpdate,
 } = useUpdateCheck()
 
-const apiBase = window.location.origin + '/api/v1'
+const apiBase = window.location.origin + import.meta.env.BASE_URL + 'api/v1'
 
 const githubProfile = 'https://github.com/magiccode1412'
 const githubRepo = 'https://github.com/magiccode1412/magicmail'
