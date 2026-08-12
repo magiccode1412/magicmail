@@ -20,10 +20,12 @@ type Config struct {
 
 // ServerConfig HTTP 服务配置
 type ServerConfig struct {
-	Port     int    // 监听端口，默认 8080（仅 TCP 模式使用）
-	Host     string // 监听地址，默认 0.0.0.0（仅 TCP 模式使用）
-	Listen   string // 完整监听地址：空或 "tcp://HOST:PORT"（默认 TCP）；"unix:///path/app.sock" 走 Unix Socket（飞牛统一网关）
-	BasePath string // 应用部署的基础路径前缀（如飞牛统一网关的 /app/magicmail）。为空表示部署在根路径。
+	Port       int    // 监听端口，默认 8080（仅 TCP 模式使用）
+	Host       string // 监听地址，默认 0.0.0.0（仅 TCP 模式使用）
+	Listen     string // 完整监听地址：空或 "tcp://HOST:PORT"（默认 TCP）；"unix:///path/app.sock" 走 Unix Socket（飞牛统一网关）
+	TCPEnabled bool   // 是否在主监听之外同时启用 TCP 监听（飞牛向导 both 模式为 true）
+	TCPAddr    string // 并行 TCP 监听地址，如 "0.0.0.0:23232"；为空时用 Host:Port
+	BasePath   string // 应用部署的基础路径前缀（如飞牛统一网关的 /app/magicmail）。为空表示部署在根路径。
 }
 
 // Addr 返回 TCP 监听地址（兼容旧逻辑/Docker 部署）
@@ -180,12 +182,21 @@ func Load() *Config {
 	// 若网关透传前缀，下面 Register 中的重写中间件会将其剥离为根路径路由。
 	basePath := getEnv("MAGICMAIL_BASE_PATH", "")
 
+	// 并行 TCP 监听：飞牛向导 "both" 模式下由 cmd/main 注入
+	//   - MAGICMAIL_TCP_ENABLED=1 → 在主监听（Unix 或 TCP）之外再开一个 TCP 端口
+	//   - MAGICMAIL_TCP_ADDR     → 显式地址，如 0.0.0.0:23232；为空则用 Host:Port
+	// 不设 MAGICMAIL_TCP_ENABLED（Docker/仅网关）则纯主监听，向后兼容。
+	tcpEnabled := getEnvBool("MAGICMAIL_TCP_ENABLED", false)
+	tcpAddr := getEnv("MAGICMAIL_TCP_ADDR", "")
+
 	return &Config{
 		Server: ServerConfig{
-			Port:     port,
-			Host:     getEnv("MAGICMAIL_HOST", "0.0.0.0"),
-			Listen:   listen,
-			BasePath: basePath,
+			Port:       port,
+			Host:       getEnv("MAGICMAIL_HOST", "0.0.0.0"),
+			Listen:     listen,
+			TCPEnabled: tcpEnabled,
+			TCPAddr:    tcpAddr,
+			BasePath:   basePath,
 		},
 		Database: DatabaseConfig{
 			DSN: dsn,

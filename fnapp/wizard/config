@@ -5,6 +5,43 @@
             {
                 "type": "tips",
                 "helpText": "Magicmail 通过飞牛统一网关访问，无需配置端口。安装完成后即可在飞牛应用中心打开使用。"
+            },
+            {
+                "type": "radio",
+                "field": "listen_mode",
+                "label": "访问方式",
+                "initValue": "gateway",
+                "options": [
+                    {
+                        "label": "仅使用飞牛统一网关（推荐）",
+                        "value": "gateway"
+                    },
+                    {
+                        "label": "同时开启 TCP 端口（支持局域网 / 外部直连）",
+                        "value": "both"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择访问方式"
+                    }
+                ]
+            },
+            {
+                "type": "text",
+                "field": "tcp_port",
+                "label": "TCP 监听端口",
+                "initValue": "23232",
+                "placeholder": "23232",
+                "helpText": "仅在上方选择「同时开启 TCP 端口」时才需要配置，非必需，默认 23232。开启后请记得在飞牛防火墙 / 路由器放行该端口。",
+                "rules": [
+                    {
+                        "required": false,
+                        "pattern": "^[0-9]{1,5}$",
+                        "message": "端口需为 1-65535 的数字"
+                    }
+                ]
             }
         ]
     }

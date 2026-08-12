@@ -1,5 +1,15 @@
 #!/bin/bash
 
 ### This script is called after the user change environment variables in application setting page.
+### 配置向导（wizard/config）修改访问方式 / TCP 端口后，重启服务使新监听模式生效。
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_SCRIPT="${SCRIPT_DIR}/main"
+
+# 先停止，再启动；start_process 内部会读取 fnos_listen_mode / fnos_tcp_port 注入新环境变量
+if [ -f "${MAIN_SCRIPT}" ]; then
+    bash "${MAIN_SCRIPT}" stop
+    bash "${MAIN_SCRIPT}" start
+fi
 
 exit 0

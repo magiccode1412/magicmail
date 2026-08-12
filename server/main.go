@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -114,17 +115,20 @@ func main() {
 	sse.InitBroker()
 
 	// 启动 HTTP 服务
-	// 监听方式由 cfg.Server.Listen 决定：
+	// 监听方式由 cfg.Server.Listen 决定（主监听）：
 	//   - tcp://HOST:PORT → 普通 TCP 监听（Docker / 旧部署）
 	//   - unix:///path/app.sock → Unix Socket（飞牛统一网关）
+	// 若 cfg.Server.TCPEnabled 为 true，则会在主监听之外再并行监听一个 TCP 端口
+	//（飞牛向导 "both" 模式：网关走 Unix，外部直连走 TCP）。
 	if err := listenAndServe(app, cfg); err != nil {
 		log.Fatalf("❌ 服务启动失败: %v", err)
 	}
 }
 
-// listenAndServe 按 Listen 配置启动服务，支持 TCP 与 Unix Socket 两种模式。
-func listenAndServe(app *fiber.App, cfg *config.Config) error {
-	listen := cfg.Server.Listen
+// buildListener 根据 listen 字符串创建主监听器：
+//   - unix:///path/app.sock → Unix Socket（启动前清理旧文件、权限 0666）
+//   - tcp://HOST:PORT / 纯 host:port → TCP 监听
+func buildListener(listen string) (net.Listener, error) {
 	switch {
 	case strings.HasPrefix(listen, "unix://"):
 		sockPath := strings.TrimPrefix(listen, "unix://")
@@ -132,23 +136,59 @@ func listenAndServe(app *fiber.App, cfg *config.Config) error {
 		_ = os.Remove(sockPath)
 		ln, err := net.Listen("unix", sockPath)
 		if err != nil {
-			return fmt.Errorf("创建 unix socket %s 失败: %w", sockPath, err)
+			return nil, fmt.Errorf("创建 unix socket %s 失败: %w", sockPath, err)
 		}
 		// 确保 socket 文件可被网关进程读取
 		_ = os.Chmod(sockPath, 0666)
-		// 进程退出时清理 socket 文件
-		defer os.Remove(sockPath)
 		log.Printf("🚀 Magicmail 服务启动于 Unix Socket: %s", sockPath)
-		return app.Listener(ln)
+		return ln, nil
 	case strings.HasPrefix(listen, "tcp://"):
 		addr := strings.TrimPrefix(listen, "tcp://")
 		log.Printf("🚀 Magicmail 服务启动于 http://%s", addr)
-		return app.Listen(addr)
+		return net.Listen("tcp", addr)
 	default:
 		// 兜底：当作纯 host:port
 		log.Printf("🚀 Magicmail 服务启动于 http://%s", listen)
-		return app.Listen(listen)
+		return net.Listen("tcp", listen)
 	}
+}
+
+// listenAndServe 启动服务：主监听阻塞当前协程；若启用并行 TCP，则在独立 goroutine 监听。
+func listenAndServe(app *fiber.App, cfg *config.Config) error {
+	mainLn, err := buildListener(cfg.Server.Listen)
+	if err != nil {
+		return err
+	}
+
+	// Unix Socket 进程退出时清理文件（主监听为 TCP 时该值为空，无副作用）
+	if up := unixSocketPath(cfg.Server.Listen); up != "" {
+		defer os.Remove(up)
+	}
+
+	// 并行 TCP 监听（飞牛向导 "both" 模式）：不影响主监听进程生命周期
+	if cfg.Server.TCPEnabled {
+		addr := cfg.Server.TCPAddr
+		if addr == "" {
+			addr = cfg.Server.Host + ":" + strconv.Itoa(cfg.Server.Port)
+		}
+		go func() {
+			log.Printf("🚀 Magicmail TCP 服务启动于 http://%s", addr)
+			if err := app.Listen(addr); err != nil {
+				log.Printf("⚠️  TCP 并行监听失败（不影响主监听）: %v", err)
+			}
+		}()
+	}
+
+	// 主协程阻塞在主监听器上（进程生命周期由它决定）
+	return app.Listener(mainLn)
+}
+
+// unixSocketPath 从 unix:// 监听串中提取 socket 路径，非 Unix 监听返回空字符串。
+func unixSocketPath(listen string) string {
+	if strings.HasPrefix(listen, "unix://") {
+		return strings.TrimPrefix(listen, "unix://")
+	}
+	return ""
 }
 
 // logWriter 是全局日志输出目标：
