@@ -39,6 +39,15 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		}
 		return c.Status(401).JSON(fiber.Map{"error": msg, "detail": err.Error()})
 	}
+
+	// 若当前处于飞牛统一网关环境，则登录后自动将本账号绑定到该飞牛身份（无需用户手动操作）
+	if fnosUID, _, ok := middleware.GatewayIdentity(c); ok && fnosUID != "" {
+		if bindErr := h.service.BindToFnOSIfFree(fnosUID, result.Username); bindErr != nil {
+			// 绑定失败不影响登录本身，仅记录日志
+			c.Locals("fnos_bind_error", bindErr.Error())
+		}
+	}
+
 	return c.JSON(result)
 }
 
@@ -75,6 +84,13 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	result, loginErr := h.service.Login(loginReq)
 	if loginErr != nil {
 		return c.Status(201).JSON(fiber.Map{"message": "注册成功，请手动登录", "detail": loginErr.Error()})
+	}
+
+	// 若当前处于飞牛统一网关环境，则注册后自动将本账号绑定到该飞牛身份（无需用户手动操作）
+	if fnosUID, _, ok := middleware.GatewayIdentity(c); ok && fnosUID != "" {
+		if bindErr := h.service.BindToFnOSIfFree(fnosUID, result.Username); bindErr != nil {
+			c.Locals("fnos_bind_error", bindErr.Error())
+		}
 	}
 
 	c.Status(201)

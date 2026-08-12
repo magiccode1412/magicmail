@@ -172,6 +172,39 @@ func (s *AuthService) BindExistingByFnOS(fnosUID, username, password string) (*m
 	return &user, nil
 }
 
+// BindToFnOSIfFree 在「登录/注册」流程中自动将当前账号绑定到飞牛身份（仅当用户未主动操作过时）。
+//
+// 仅在以下同时满足时执行绑定，避免破坏用户已有绑定关系：
+//   - 该飞牛身份尚未绑定任何 magicmail 账号；
+//   - 目标 magicmail 账号自身尚未绑定其他飞牛身份。
+//
+// 其余情况（已绑定 / 被占用）直接忽略，不报错，保证登录/注册主流程不受影响。
+// 这是「飞牛网关免选登录」重构的一部分：用户无需在界面上手动选择绑定。
+func (s *AuthService) BindToFnOSIfFree(fnosUID, username string) error {
+	if fnosUID == "" {
+		return nil
+	}
+	// 该飞牛身份已绑定过账号 → 不再覆盖
+	if existing, err := s.GetFnosBind(fnosUID); err != nil {
+		return err
+	} else if existing != nil {
+		return nil
+	}
+
+	var user models.User
+	if err := s.db.Where("username = ?", username).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	// 账号已被其他飞牛身份绑定 → 忽略
+	if user.FnosUID != "" {
+		return nil
+	}
+	return s.db.Model(&user).Update("fnos_uid", fnosUID).Error
+}
+
 // RegisterByFnOS 注册新 magicmail 账号并绑定飞牛身份
 //   - 复用 Register 的「首个用户为 admin / 受开放注册开关约束」逻辑
 //   - 注册成功后写入 fnos_uid（一对一约束）

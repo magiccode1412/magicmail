@@ -21,8 +21,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => role.value === 'admin')
 
   async function init() {
+    // 1) 若有 token，先校验有效性（清库/过期等场景）
     if (token.value) {
-      // 有 token 时验证是否有效（清库/过期等场景）
       try {
         const res = await authApi.getAuthStatus()
         // token 有效，更新用户名与角色
@@ -34,16 +34,19 @@ export const useAuthStore = defineStore('auth', () => {
         // token 无效（401 / 后端已重置等），清除并标记需要重新登录
         logout()
       }
-    } else {
-      try {
-        const res = await authApi.getAuthStatus()
-        setupRequired.value = res.setup_required
-        openRegistration.value = !!res.open_registration
-      } catch (_) {
-        setupRequired.value = true
-      }
     }
-    // 探测飞牛网关状态（无论是否登录都探测，用于显示飞牛登录入口）
+
+    // 2) 统一探测初始化状态（无论是否有 token，保证 setupRequired 一定被设置）
+    //    注意：残留的失效 token 被 logout 后，若此处不探测，新安装场景会误判为「无需注册」而只显示登录入口。
+    try {
+      const res = await authApi.getAuthStatus()
+      setupRequired.value = !!res.setup_required
+      openRegistration.value = !!res.open_registration
+    } catch (_) {
+      setupRequired.value = true
+    }
+
+    // 3) 探测飞牛网关状态（无论是否登录都探测，用于自动登录判断）
     try {
       const fnos = await authApi.fnosStatus()
       gatewayAvailable.value = !!fnos.gateway
@@ -53,12 +56,28 @@ export const useAuthStore = defineStore('auth', () => {
       gatewayAvailable.value = false
       fnosBound.value = false
     }
+
+    // 4) 飞牛统一网关环境：已绑定用户直接免密登录进入系统，无需手动点击
+    if (gatewayAvailable.value && fnosBound.value && !token.value) {
+      try {
+        await doFnosLogin()
+      } catch (_) {
+        // 自动登录失败（如 token 签发异常）时退回登录页，由用户手动处理
+        fnosBound.value = false
+      }
+    }
+
     initialized.value = true
   }
 
   async function doLogin(loginData) {
     const res = await authApi.login(loginData)
     setToken(res.token, res.username, res.role)
+    // 后端已在网关环境下自动绑定飞牛身份，刷新本地状态
+    if (gatewayAvailable.value) {
+      fnosBound.value = true
+      fnosUsername.value = res.username || fnosUsername.value
+    }
     return res
   }
 
@@ -66,6 +85,11 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await authApi.register(regData)
     if (res.token) {
       setToken(res.token, res.username, res.role)
+      // 后端已在网关环境下自动绑定飞牛身份，刷新本地状态
+      if (gatewayAvailable.value) {
+        fnosBound.value = true
+        fnosUsername.value = res.username || fnosUsername.value
+      }
     }
     return res
   }
