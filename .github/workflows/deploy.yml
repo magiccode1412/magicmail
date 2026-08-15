@@ -1,0 +1,69 @@
+# 工作流名称：构建并部署文档到 GitHub Pages
+name: Deploy Docs to GitHub Pages
+
+# 触发条件：
+# 1. 推送到 main 分支时自动触发（文档以 main 为准，dev 分支不自动部署）
+# 2. 在 GitHub 网页端手动触发（Actions 页面点击 Run workflow）
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# 权限配置：需要 contents 写入权限，以便把构建产物推送到 gh-pages 分支
+permissions:
+  contents: write
+
+# 部署到 GitHub Pages 时的资源基础路径（子路径部署需以 / 开头、不以 / 结尾）
+# 例如仓库名为 magicmail，则访问地址为 https://<username>.github.io/magicmail/
+# 如需根路径部署，设为 '/' 即可
+env:
+  VITEPRESS_BASE: /magicmail
+
+jobs:
+  # 构建并部署任务
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      # 步骤1：检出仓库代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 步骤2：安装 Node.js 20 环境
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 步骤3：安装 pnpm（docs 使用 pnpm 管理依赖）
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # 步骤4：安装依赖（使用 pnpm-lock.yaml 精确还原）
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 步骤5：构建项目
+      # VitePress 通过 VITEPRESS_BASE 环境变量设置 base，
+      # 确保部署到子路径时资源引用正确
+      - name: 构建项目
+        run: pnpm run build
+
+      # 步骤6：将构建产物（docs/.vitepress/dist 目录）推送到 gh-pages 分支
+      # 首次运行会自动创建 gh-pages 分支
+      - name: 部署到 GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .vitepress/dist
+          publish_branch: gh-pages
+          # 提交信息，便于追溯每次部署
+          commit_message: ${{ github.event.head_commit.message }}
