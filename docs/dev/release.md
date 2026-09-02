@@ -232,4 +232,18 @@ bash scripts/verify-build.sh
 
 ## 文档站部署
 
-`deploy.yml` 在 **`main` 分支**的 `docs/**` 变更时自动部署。在 `dev` 上修改文档不会发布到线上，需先合并到 `main`。
+文档有两个发布渠道：
+
+| 渠道 | 定位 | 触发方式 |
+|------|------|----------|
+| EdgeOne | 主用 | 关联仓库后自动部署，日常无需干预 |
+| GitHub Pages | 保底 | `deploy.yml` 在 `main` 分支有 `docs/**` 变更时自动部署 |
+
+GitHub Pages 走官方 Pages Action（`configure-pages` → `upload-pages-artifact` → `deploy-pages`），
+直接上传构建产物，**不使用 `gh-pages` 分支**。
+
+> **前置条件**：仓库首次启用时需到 Settings → Pages → Source 选择 **GitHub Actions**。
+> 否则 `Build Docs` 会成功，但 `Deploy` job 直接失败（不会执行任何步骤）。
+
+`deploy.yml` 只在 `main` 分支触发，在 `dev` 上改文档不会发布，需先合并到 `main`。
+也可以手动触发：Actions → Deploy Docs to GitHub Pages → Run workflow。
