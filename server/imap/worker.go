@@ -57,6 +57,20 @@ func GlobalPool() *WorkerPool {
 	return globalPool
 }
 
+// GlobalWorkerMode 返回指定账号 Worker 的当前同步模式（idle/polling/syncing/stopped）。
+// 无对应 Worker（账号已停用、未启动或进程刚启动）时返回空串，调用方应回退为 "unknown"。
+func GlobalWorkerMode(accountID uint) string {
+	if globalPool == nil {
+		return ""
+	}
+	globalPool.mu.RLock()
+	defer globalPool.mu.RUnlock()
+	if w, ok := globalPool.workers[accountID]; ok {
+		return w.Mode()
+	}
+	return ""
+}
+
 // StartWorkers 启动所有活跃邮箱的后台同步 Worker（程序启动时调用）
 func StartWorkers(db *gorm.DB, cfg *config.Config) {
 	pool := &WorkerPool{
@@ -106,7 +120,7 @@ func StopWorkers() {
 }
 
 // StartWorker 为单个邮箱账号启动同步协程
-func (p *WorkerPool) StartWorker(account *models.MailAccount) {
+func (p *WorkerPool) StartWorker(account *models.MailAccount) *AccountWorker {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -125,6 +139,7 @@ func (p *WorkerPool) StartWorker(account *models.MailAccount) {
 	}()
 
 	log.Printf("▶️  Worker 启动: %s (%s)", account.Email, account.Name)
+	return w
 }
 
 // StopWorker 停止指定账号的 Worker
@@ -139,8 +154,12 @@ func (p *WorkerPool) StopWorker(accountID uint) {
 }
 
 // RestartWorker 重启指定账号的 Worker（配置变更后调用）
+// 重启视为一次"用户触发的同步"，完成后推送 account.sync_* 进度事件
 func (p *WorkerPool) RestartWorker(account *models.MailAccount) {
-	p.StartWorker(account)
+	w := p.StartWorker(account)
+	if w != nil {
+		w.manualSync.Store(true)
+	}
 }
 
 // AccountWorker 单个邮箱账号的同步 Worker
@@ -152,6 +171,9 @@ type AccountWorker struct {
 	shutdownCh      chan struct{}
 	stopCh          chan struct{} // 该 Worker 的独立停止通道
 	idleUnsupported bool          // 标记该账号是否不支持IDLE（避免重复尝试）
+	manualSync      atomic.Bool  // 标记本次同步是否由用户手动触发（用于推送同步进度事件）
+	lastStatus      string       // 上一次上报的账号健康状态（用于去重，仅状态变化时推送 account.health）
+	mode            atomic.Value // 当前同步模式: idle/polling/syncing/stopped（切换时推送 SSE，供前端实时展示）
 }
 
 // NewAccountWorker 创建新的账号 Worker
@@ -183,6 +205,7 @@ func (w *AccountWorker) Run() {
 	defer ticker.Stop()
 
 	// 首次全量同步
+	w.setMode("syncing")
 	w.syncOnce()
 
 	for {
@@ -192,11 +215,13 @@ func (w *AccountWorker) Run() {
 		case <-w.shutdownCh:
 			return
 		case <-ticker.C:
-			// 定时轮询同步
+			// 定时轮询同步（非 IDLE 模式下主要由该分支驱动）
+			w.setMode("syncing")
 			w.syncOnce()
 		default:
 			// 仅 IMAP 协议支持 IDLE 实时监听；POP3 不支持 IDLE，直接等待下次轮询
 			if w.isIMAP() && w.config.IMAP.IDLEEnabled && !w.isIDLEUnsupported() {
+				w.setMode("idle")
 				if err := w.idleLoop(); err != nil {
 					// 检查是否为"不支持IDLE"的错误，如果是则全局标记
 					errMsg := err.Error()
@@ -207,6 +232,8 @@ func (w *AccountWorker) Run() {
 					} else {
 						log.Printf("⚠️  IDLE 异常 (%s): %v，降级为轮询", w.account.Email, err)
 					}
+					// 短暂退避后重试（退避期间视为轮询态）
+					w.setMode("polling")
 					select {
 					case <-time.After(30 * time.Second):
 					case <-w.stopCh:
@@ -216,10 +243,12 @@ func (w *AccountWorker) Run() {
 					}
 				} else {
 					// idleLoop 正常返回说明检测到新邮件或超时，立即同步
+					w.setMode("syncing")
 					w.syncOnce()
 				}
 			} else {
-				// POP3 或未启用 IDLE：等待下一次定时触发
+				// POP3 或未启用 IDLE：轮询等待下一次定时触发
+				w.setMode("polling")
 				select {
 				case <-ticker.C:
 				case <-w.stopCh:
@@ -243,6 +272,15 @@ func (w *AccountWorker) syncOnce() {
 	}
 	defer func() { <-w.sem }()
 
+	// 本次是否为用户手动触发的同步（用于推送同步进度事件）
+	wasManual := w.manualSync.Swap(false)
+	fail := func(msg string) {
+		w.updateAccountStatus("error", msg)
+		if wasManual {
+			sse.PublishAccountSyncError(w.account.UserID, w.account.ID, w.account.Email, msg)
+		}
+	}
+
 	// 重新从数据库获取最新账号信息（密码可能被更新）
 	var fresh models.MailAccount
 	if err := w.db.First(&fresh, w.account.ID).Error; err != nil {
@@ -254,31 +292,32 @@ func (w *AccountWorker) syncOnce() {
 	// 根据协议创建对应的邮件客户端
 	client, err := NewMailClient(w.account, w.config)
 	if err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
 	}
 	defer client.Close()
 
 	// 认证
 	if err := client.Authenticate(); err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
+	}
+
+	// 持久化刷新得到的 OAuth2 Token（RefreshToken 轮换后需落库，否则进程重启后会用已失效的旧 RefreshToken）
+	if ic, ok := client.(*IMAPClient); ok {
+		if err := ic.persistOAuthTokens(w.db); err != nil {
+			log.Printf("⚠️ 保存刷新后的 OAuth2 Token 失败 (%s): %v", w.account.Email, err)
+		}
 	}
 
 	// 根据协议选择对应的拉取器执行同步
 	var count int
 	var syncedIDs []uint // 本次同步成功入库的邮件ID（webhook精确推送用）
 	if w.isIMAP() {
-		// IMAP 同步（INBOX + Sent）
+		// IMAP 同步（仅收件箱 INBOX；已发送由应用发送时本地落库，不从邮箱拉取）
 		imapClient := client.(*IMAPClient)
 		fetcher := NewFetcher(w.db, w.config)
 		count, err = fetcher.SyncMailbox(imapClient)
-		if err == nil {
-			// 继续同步已发送文件夹（失败不阻止主流程）
-			if sentCount, sentErr := fetcher.SyncSentMailbox(imapClient); sentErr == nil {
-				count += sentCount
-			}
-		}
 		syncedIDs = fetcher.SyncedMailIDs // IMAP: 从 Fetcher 获取精确ID
 	} else {
 		// POP3 同步
@@ -289,7 +328,7 @@ func (w *AccountWorker) syncOnce() {
 	}
 
 	if err != nil {
-		w.updateAccountStatus("error", err.Error())
+		fail(err.Error())
 		return
 	}
 
@@ -301,6 +340,10 @@ func (w *AccountWorker) syncOnce() {
 			"status":      "active",
 			"error_msg":   "",
 		})
+
+	if wasManual {
+		sse.PublishAccountSyncDone(w.account.UserID, w.account.ID, w.account.Email, count)
+	}
 
 	if count > 0 {
 		log.Printf("📬 %s 同步完成: 新增 %d 封邮件", w.account.Email, count)
@@ -357,7 +400,7 @@ func (w *AccountWorker) syncOnce() {
 			}
 		}
 
-		// 触发 Webhook 通知（每封邮件独立触发一次）
+		// 触发 Webhook 通知（每封邮件独立触发一次，仅当前用户配置的 Webhook）
 		nowTs := fmt.Sprintf("%d", time.Now().Unix())
 		for _, mail := range mailList {
 			notifier.TriggerByEvent(w.db, "mail.received", map[string]interface{}{
@@ -374,15 +417,16 @@ func (w *AccountWorker) syncOnce() {
 				"text_body":     mail["text_body"],
 				"html_body":     mail["html_body"],
 				"timestamp":     nowTs,
-			})
+			}, w.account.UserID)
 		}
 
-		// 推送 SSE 实时事件给前端
-		sse.PublishMailReceived(w.account.ID, w.account.Email, count, mailList)
+	// 推送 SSE 实时事件给前端（仅当前用户）
+	sse.PublishMailReceived(w.account.UserID, w.account.ID, w.account.Email, count, mailList)
+	sse.PublishStatsUpdated(w.account.UserID, w.account.ID, w.account.Email)
 
-		// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖）
+	// 发送 Web Push 离线推送通知（通过 notifier 包桥接，避免循环依赖，仅当前用户）
 		notifier.SendPushNotification(
-			1,
+			w.account.UserID,
 			fmt.Sprintf("📧 您有 %d 封新邮件", count),
 			fmt.Sprintf("来自 %s", w.account.Email),
 			map[string]interface{}{"account_id": w.account.ID},
@@ -558,13 +602,36 @@ func (w *AccountWorker) newIMAPClientWithHandler(mailboxCh chan struct{}) (*IMAP
 
 // Stop 停止此 Worker
 func (w *AccountWorker) Stop() {
+	w.setMode("stopped")
 	select {
 	case w.stopCh <- struct{}{}:
 	default:
 	}
 }
 
-// updateAccountStatus 更新账号状态到数据库
+// setMode 更新当前同步模式，仅在状态切换时推送 SSE 事件（供前端实时展示 idle/polling）
+func (w *AccountWorker) setMode(mode string) {
+	if mode == "" {
+		return
+	}
+	if old, _ := w.mode.Load().(string); old != mode {
+		w.mode.Store(mode)
+		sse.PublishAccountMode(w.account.UserID, w.account.ID, w.account.Email, mode)
+	}
+}
+
+// Mode 返回当前同步模式（idle/polling/syncing/stopped），未启动时为空串
+func (w *AccountWorker) Mode() string {
+	if w == nil {
+		return ""
+	}
+	if v, ok := w.mode.Load().(string); ok {
+		return v
+	}
+	return ""
+}
+
+// updateAccountStatus 更新账号状态到数据库，并在状态发生切换时推送 account.health 事件
 func (w *AccountWorker) updateAccountStatus(status, errMsg string) {
 	w.db.Model(&models.MailAccount{}).Where("id = ?", w.account.ID).
 		Updates(map[string]interface{}{
@@ -573,6 +640,12 @@ func (w *AccountWorker) updateAccountStatus(status, errMsg string) {
 		})
 	if status == "error" {
 		log.Printf("❌ 同步错误 (%s): %s", w.account.Email, errMsg)
+	}
+
+	// 仅在健康状态发生切换时推送，避免每次轮询都刷屏（P3-1：账号连接健康实时可见）
+	if w.lastStatus != status {
+		w.lastStatus = status
+		sse.PublishAccountHealth(w.account.UserID, w.account.ID, w.account.Email, status, errMsg)
 	}
 }
 

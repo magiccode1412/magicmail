@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"fmt"
+	"magicmail/sse"
 	"magicmail/services"
 	"strconv"
 
@@ -45,7 +46,9 @@ func (h *DraftHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	drafts, total, err := h.service.ListDrafts(userID, page, pageSize)
+	keyword := c.Query("keyword")
+
+	drafts, total, err := h.service.ListDrafts(userID, page, pageSize, keyword)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取草稿列表失败",
@@ -114,6 +117,9 @@ func (h *DraftHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// 推送实时事件：携带被删草稿 ID，供其它标签页/客户端即时从本地列表移除（无需整列表刷新）
+	sse.PublishDraftDeleted(userID, []uint{uint(id)})
+
 	return c.JSON(fiber.Map{
 		"success": true,
 		"message": "草稿已删除",
@@ -138,6 +144,9 @@ func (h *DraftHandler) BatchDelete(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "批量删除失败", "detail": err.Error()})
 	}
+
+	// 推送实时事件：携带被删草稿 ID 列表，供其它标签页/客户端即时从本地列表移除
+	sse.PublishDraftDeleted(userID, req.IDs)
 
 	return c.JSON(fiber.Map{
 		"success": true,

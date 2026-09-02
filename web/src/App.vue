@@ -9,7 +9,7 @@
   </div>
 
   <!-- 已登录：主应用界面 -->
-  <div v-else-if="isLoggedIn" class="app" :class="{ 'dark': isDark }">
+  <div v-else-if="isLoggedIn" class="app" :class="{ 'dark': isDark, 'has-update-banner': hasUpdate }">
     <!-- 更新提示横幅 -->
     <div v-if="hasUpdate" class="update-banner" role="banner">
       <div class="update-banner-inner">
@@ -18,7 +18,7 @@
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
         </svg>
         <span>
-          发现新版本 <strong>v{{ latestVersion }}</strong>（当前 v{{ __APP_VERSION__ }}）
+          发现新版本 <strong>v{{ latestVersion }}</strong>（当前 v{{ currentVersion }}）
           <a v-if="downloadUrl" :href="downloadUrl" target="_blank" rel="noopener" class="update-link">查看更新</a>
         </span>
       </div>
@@ -50,7 +50,7 @@
       <div class="app-content">
         <router-view v-slot="{ Component, route }">
           <transition name="fade">
-            <keep-alive :include="['MailList', 'Sent', 'Drafts', 'AccountManage', 'Settings']">
+            <keep-alive :include="['MailList', 'Sent', 'Drafts', 'AccountManage', 'Settings', 'About']">
               <component v-if="route.name !== 'Login'" :is="Component" :key="route.name === 'MailReader' ? route.fullPath : route.name" />
             </keep-alive>
           </transition>
@@ -71,17 +71,19 @@ import AppHeader from './components/AppHeader.vue'
 import AppToast from './components/AppToast.vue'
 import { useAppStore } from './stores/appStore'
 import { useMailStore } from './stores/mailStore'
+import { useAccountStore } from './stores/accountStore'
 import { useAuthStore } from './stores/authStore'
 import { useToast } from './composables/useToast'
 import { useUpdateCheck } from './composables/useUpdateCheck'
 
 const toast = useToast()
-const { hasUpdate, latestVersion, checkUpdate, dismiss: dismissUpdate } = useUpdateCheck()
+const { hasUpdate, latestVersion, currentVersion, checkUpdate, dismiss: dismissUpdate } = useUpdateCheck()
 
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const mailStore = useMailStore()
+const accountStore = useAccountStore()
 const authStore = useAuthStore()
 
 // 认证状态
@@ -116,23 +118,36 @@ function handleNavigate(path) {
   router.push(path)
 }
 
-// 搜索处理
+// 搜索处理（带防抖，避免每输入一个字符就发一次请求）
+let searchTimer = null
 function handleSearch(keyword) {
-  if (route.path !== '/mails') {
-    router.push({ path: '/mails', query: { keyword } })
-  }
-  // 通过 store 更新搜索关键词（MailListView 会响应）
-  appStore.setSearchKeyword(keyword)
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    // 更新全局搜索关键词，当前页面会就地响应
+    appStore.setSearchKeyword(keyword)
+    // 仅在非邮件类页面（账号管理、设置、写邮件等）时跳转到收件箱进行搜索；
+    // 收件箱 / 已发送 / 草稿页内直接就地搜索，不再强制跳走
+    const searchablePaths = ['/mails', '/sent', '/drafts']
+    if (!searchablePaths.includes(route.path)) {
+      router.push({ path: '/mails', query: { keyword } })
+    }
+  }, 300)
 }
 
 // 刷新处理（根据当前页面执行对应刷新逻辑）
 function handleRefresh() {
   if (route.path === '/mails') {
+    // MailList 与 Sent 共用同一个 mailStore，刷新前必须先把 folder 还原为收件箱，
+    // 否则在「已发送 → 收件箱」之后点刷新会带着 folder='sent' 重新拉取已发送邮件。
+    mailStore.filters.folder = 'inbox'
     mailStore.fetchMails(mailStore.currentPage)
     mailStore.fetchStats()
   } else if (route.path === '/sent') {
+    mailStore.filters.folder = 'sent'
     mailStore.fetchMails(mailStore.currentPage)
     mailStore.fetchStats()
+  } else if (route.path === '/accounts') {
+    accountStore.fetchAccounts()
   }
   // 草稿页面的刷新由 DraftsView 自身管理
 }
@@ -160,6 +175,12 @@ onMounted(async () => {
 
 <style scoped>
 .app {
+  /* 更新横幅高度 */
+  --update-banner-height: 40px;
+  /* 横幅显示时才占位（0 → 40px），供 toast 等固定定位元素下移 */
+  --update-banner-offset: 0px;
+  /* 顶部可用起始位置：有更新横幅时下移，供 .app 自身 padding 使用 */
+  --app-top-offset: var(--space-md);
   display: flex;
   height: 100vh;
   overflow: hidden;
@@ -169,6 +190,13 @@ onMounted(async () => {
   /* 悬浮卡片布局：四周留出间距 */
   padding: var(--space-md);
   box-sizing: border-box;
+}
+
+/* 有更新横幅时让整体内容下移，横幅不再压住顶栏 / 侧边栏 / toast */
+.app.has-update-banner {
+  --update-banner-offset: var(--update-banner-height);
+  --app-top-offset: calc(var(--space-md) + var(--update-banner-offset));
+  padding-top: var(--app-top-offset);
 }
 
 .app-main {
@@ -202,7 +230,8 @@ onMounted(async () => {
 
 /* 响应式适配：小屏幕取消悬浮间距 */
 @media (max-width: 768px) {
-  .app { padding: 0; gap: 0; }
+  .app { padding: 0; gap: 0; --app-top-offset: 0px; }
+  .app.has-update-banner { --app-top-offset: var(--update-banner-offset); }
   .app-content {
     border-radius: 0;
     box-shadow: none;
@@ -249,11 +278,14 @@ onMounted(async () => {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 200;
+  /* 必须高于顶栏(--z-header)，否则横幅右侧会被 sticky 的顶栏盖住 */
+  z-index: calc(var(--z-header) + 1);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px var(--space-md);
+  height: var(--update-banner-height);
+  padding: 0 var(--space-md);
+  box-sizing: border-box;
   background: linear-gradient(135deg, #4F6EF7, #6366f1);
   color: #fff;
   font-size: var(--font-size-sm, 13px);

@@ -95,6 +95,15 @@ SSE Broker (发布-订阅)
   sse.PublishMailSynced(accountID, email)                   // Worker 调用
   ```
 
+- **⚠️ 生命周期注意事项（重要）:**
+  fasthttp 的 `SetBodyStreamWriter` 是**异步执行**的：handler 注册 writer 后立即返回，
+  writer 函数在此之后才被 fasthttp 调用。因此：
+  - `broker.Unregister(clientID)` 必须 `defer` 在 **writer 函数内部**，
+    不能 defer 在 handler 函数体里——否则 handler 一返回就会关闭 Events 通道，
+    导致连接刚建立就断开，前端 EventSource 陷入 1~2 秒一次的重连循环。
+  - writer 的 select 循环中需监听 `ctx.Done()`，客户端断开时及时退出并清理，
+    而不是等下一次心跳写入失败（最长 15 秒）才感知。
+
 ---
 
 ### 3. ✅ 集成到现有系统
@@ -130,17 +139,19 @@ sse.PublishMailReceived(w.account.ID, w.account.Email, count, mailList)
 ```javascript
 export function useSSE(options = {}) {
   // 自动管理 EventSource 连接生命周期
-  // 支持指数退避重连 (最多10次, 最大30秒间隔)
-  // 事件回调: onMailReceived, onMailSynced, onConnected, onError
+  // 断线重连由浏览器 EventSource 原生机制处理
+  // 连续错误达到上限 (5 次) 后触发 onFallback 回退到轮询
+  // 事件回调: onMailReceived, onMailSynced, onConnected, onError, onFallback
   
-  return { connected, reconnectAttempts, connect, disconnect, reconnect }
+  return { connected, connectionMode, errorCount, connect, disconnect, reconnect }
 }
 
 // 便捷 Hook（邮件场景）
-export function useMailStream(onUpdate) {
+export function useMailStream(onUpdate, extraOptions = {}) {
   return useSSE({
     onMailReceived: onUpdate,
     onMailSynced: onUpdate,
+    onFallback: extraOptions.onFallback,
   })
 }
 ```
@@ -149,7 +160,9 @@ export function useMailStream(onUpdate) {
 - 组件挂载时自动连接，卸载时自动断开
 - JWT Token 通过 URL 参数传递 (`?token=xxx`)
 - 15 秒心跳保持连接活跃
-- 断线自动重连（指数退避策略）
+- 断线重连交给浏览器 EventSource 原生机制（不叠加自定义重连定时器）
+- 连续错误达到 5 次后自动回退到轮询模式 (`connectionMode = 'polling'`)
+- `reconnect()` 手动重连可从轮询模式恢复 SSE
 
 #### 修改文件: `web/src/views/MailListView.vue`
 
@@ -195,12 +208,30 @@ onMounted(async () => {
 
 ### SSE 事件类型
 
-| 事件名 | 触发时机 | 数据结构 |
-|--------|----------|----------|
-| `connected` | 连接建立时 | `{client_id, server_time, online_count}` |
-| `mail.received` | 新邮件到达时 | `{account_id, account_email, mail_count, mails[...], timestamp}` |
-| `mail.synced` | 邮件同步完成时 | `{account_id, account_email, timestamp}` |
-| `heartbeat` | 每 15 秒 | `{time}` |
+> 事件在 `GET /api/v1/mails/stream` 通道按用户隔离推送，所有事件经 `PublishToUser` 下发到对应用户。
+
+| 事件名 | 触发时机 | 数据结构（关键字段） | 前端消费者 |
+|--------|----------|----------------------|------------|
+| `connected` | 连接建立时 | `{client_id, server_time, online_count}` | `useSSE`（连接状态） |
+| `heartbeat` | 每 15 秒 | `{time}` | `useSSE`（保活） |
+| `mail.received` | IMAP 同步发现新邮件 | `{account_id, account_email, mail_count, mails[...], timestamp}` | `MailListView` |
+| `mail.sent` | 邮件发送成功 | `{account_id, account_email, timestamp}` | `useSSE` → 刷新"已发送"列表 |
+| `mail.synced` | 标已读/未读、删除、批量/一键已读 | `{account_id, account_email, timestamp}` | `MailListView` |
+| `oauth.authorized` | OAuth2 设备码授权成功 | `{provider, account_email, timestamp}` | `WizardOAuth2Flow` |
+| `oauth.expired` | OAuth2 授权码过期 | `{provider, timestamp}` | `WizardOAuth2Flow` |
+| `account.sync_started` | 手动/自动同步开始 | `{account_id, account_email, timestamp}` | `AccountManage` |
+| `account.sync_done` | 同步完成 | `{account_id, account_email, mail_count, timestamp}` | `AccountManage` |
+| `account.sync_error` | 同步失败 | `{account_id, account_email, error, timestamp}` | `AccountManage` |
+| `account.created` | 新增账号 | `{account_id, account_email, status, timestamp}` | `AccountManage` |
+| `account.updated` | 账号配置更新 | `{account_id, account_email, status, timestamp}` | `AccountManage` |
+| `account.deleted` | 删除账号 | `{account_id, account_email, timestamp}` | `AccountManage` |
+| `account.status_changed` | 账号启用/停用 | `{account_id, account_email, status, timestamp}` | `AccountManage` |
+| `account.health` | Worker 连接健康状态切换（active/error） | `{account_id, account_email, status, error, timestamp}` | `AccountManage`（实时提示连接异常） |
+| `webhook.delivered` | Webhook 投递成功 | `{webhook_id, timestamp}` | `SettingsView` |
+| `webhook.failed` | Webhook 投递失败 | `{webhook_id, error, timestamp}` | `SettingsView` |
+| `user.created` | 管理员创建用户（全局广播） | `{user_id, username, timestamp}` | `SettingsView`（多管理员一致） |
+| `user.deleted` | 管理员删除用户（全局广播） | `{user_id, timestamp}` | `SettingsView`（多管理员一致） |
+| `stats.updated` | 未读/统计变更（轻量） | `{account_id, account_email, timestamp}` | `AppSidebar`（未读角标） |
 
 ### 示例用法
 
@@ -236,8 +267,8 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 - **非阻塞**: Worker 调用 `Publish()` 不等待投递完成（异步广播）
 
 ### 客户端
-- **重连策略**: 指数退避 (1s → 2s → 4s → ... → 30s)，最多 10 次
-- **备用机制**: 120 秒定时轮询兜底（应对极端网络情况）
+- **重连策略**: 浏览器 EventSource 原生自动重连（单一重连来源，避免多定时器竞速）
+- **回退机制**: 连续 5 次错误后停止 SSE，回退到定时轮询兜底
 
 ---
 
@@ -297,14 +328,50 @@ cd web && pnpm build
 
 ## 相关文件清单
 
+### 基础实现（SSE 基础设施）
+
 | 文件路径 | 变更类型 | 说明 |
 |---------|----------|------|
 | `server/imap/worker.go` | 🔧 修改 | IDLE Wait() 修复 + SSE 事件发布 |
-| `server/sse/broker.go` | 🆕 新建 | 事件广播中心 |
-| `server/sse/handler.go` | 🆕 新建 | SSE 端点处理器 |
+| `server/sse/broker.go` | 🆕 新建 | 事件广播中心（按用户隔离） |
+| `server/sse/handler.go` | 🆕 新建 | SSE 端点处理器 + 各类 `Publish*` 便捷函数 |
 | `server/main.go` | 🔧 修改 | 初始化 SSE Broker |
 | `server/routes/routes.go` | 🔧 修改 | 注册 SSE 路由 |
-| `web/src/composables/useSSE.js` | 🆕 新建 | SSE composable |
+| `web/src/composables/useSSE.js` | 🆕 新建 | SSE composable（所有事件监听） |
 | `web/src/views/MailListView.vue` | 🔧 修改 | 集成 SSE 推送 |
 
-**总代码量**: +350 行 (Go), +180 行 (JS/Vue)
+### 改造计划增量（见 `sse-improvement-plan.md`，P0 ~ P2）
+
+| 文件路径 | 变更类型 | 说明 |
+|---------|----------|------|
+| `server/sse/handler.go` | 🔧 修改 | 新增 `PublishOAuthAuthorized/Expired`、`PublishAccountSync*`、`PublishAccount*`、`PublishWebhook*`、`PublishStatsUpdated`、`PublishAccountHealth`、`PublishUser*` |
+| `server/sse/broker.go` | 🔧 修改 | 新增历史事件缓冲与 `ReplayHistory`/`appendHistory`，新连接回放近期事件 |
+| `server/handlers/mail_handler.go` | 🔧 修改 | `PublishMailSent` 已存在；`mail.synced` 补全 `account_id` |
+| `server/handlers/user_handler.go` | 🔧 修改 | 用户创建/删除后广播 `user.created`/`user.deleted` |
+| `server/handlers/account_handler.go` | 🔧 修改 | `TriggerSync` 发 `sync_started`；增删改/状态变更发 `account.*` |
+| `server/handlers/oauth_handler.go` | 🔧 修改 | 设备码授权改服务端轮询，完成/过期发 `oauth.*` |
+| `server/oauth2/types.go` | 🔧 修改 | `TokenResponse` 补 `IDToken` 字段（修复编译阻塞） |
+| `server/services/mail_service.go` | 🔧 修改 | 新增 `GetMailAccountID` 用于补 `account_id` |
+| `server/imap/worker.go` | 🔧 修改 | `AccountWorker.manualSync` 标志；`syncOnce` 发 `sync_done/error` 与 `stats.updated` |
+| `server/notifier/notifier.go` | 🔧 修改 | Webhook 投递结果发 `webhook.delivered/failed` |
+| `web/src/composables/useSSE.js` | 🔧 修改 | 新增 `mail.sent`、`oauth.*`、`account.sync_*`、`account.*`、`webhook.*`、`stats.updated` 监听 |
+| `web/src/components/WizardOAuth2Flow.vue` | 🔧 修改 | 去 `setInterval` 轮询，改用 SSE 监听授权完成 |
+| `web/src/views/AccountManage.vue` | 🔧 修改 | 订阅同步进度与账号生命周期事件，多标签页一致 |
+| `web/src/views/SettingsView.vue` | 🔧 修改 | 订阅 Webhook 投递结果 |
+| `web/src/components/AppSidebar.vue` | 🔧 修改 | 订阅 `stats.updated` 实时刷新未读角标 |
+
+**增量代码量**: +约 260 行 (Go), +约 180 行 (JS/Vue)
+
+---
+
+## 改造计划（P0 ~ P2）实施总结
+
+按 `sse-improvement-plan.md` 分阶段落地，已于 2026-07-29 完成 P0~P2 并验证（Go 包 `go build ./imap/... ./notifier/... ./sse/... ./handlers/... ./services/... ./oauth2/...` 通过，Vue 文件 lint 0 诊断）。
+
+- **P0**：修复 `mail.sent` 死事件（前端接入监听）、`mail.synced` 携带真实 `account_id`（新增 `GetMailAccountID`）。
+- **P1**：OAuth2 设备码轮询从前端 `setInterval` 迁移到服务端 goroutine，经 SSE `oauth.authorized/expired` 通知；账号同步进度经 `account.sync_started/done/error` 实时可见。
+- **P2**：账号生命周期 `account.created/updated/deleted/status_changed` 提升多标签页一致性；Webhook 投递结果 `webhook.delivered/failed` 实时反馈；新增轻量 `stats.updated`，侧边栏未读角标跨视图实时刷新。
+
+> **已知限制（已解决）**：原计划中记为"已知限制"的两项均已在 2026-07-29 补齐：
+> - **Broker 重放（P0 第4点）**：`Broker` 现维护每用户（及全局）近期可重放事件缓冲（上限 32，仅含轻量控制类事件，不含 `mail.received`/`mail.sent` 等大负载高频事件），新连接建立后由 `StreamHandler` 回放，避免新标签页错过已发生的状态变更。
+> - **P3 低优先级事件**：`account.health`（Worker 连接状态切换推送）、`user.created`/`user.deleted`（多管理员广播，全局重放）均已接入并消费。

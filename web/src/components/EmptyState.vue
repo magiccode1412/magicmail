@@ -23,6 +23,14 @@
         <path d="M30 12L22 26" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
       </svg>
 
+      <!-- draft (草稿) 图标 -->
+      <svg v-else-if="icon === 'draft'" width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <path d="M14 10h16l12 12v22a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M30 10v12h12" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M20 38l3-1 11-11 4 4-11 11-4 1-3 1Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M36 30l4 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+
       <!-- 默认图标 -->
       <svg v-else width="48" height="48" viewBox="0 0 48 48" fill="none">
         <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
@@ -59,9 +67,10 @@ defineProps({
   margin-bottom: var(--space-lg);
   opacity: 0.7;
 }
-.empty-icon.inbox { color: var(--primary-300); opacity: 1; }
+.empty-icon.inbox { color: var(--primary-400); opacity: 1; }
 .empty-icon.error { color: var(--error); opacity: 1; }
-.empty-icon.sent { color: var(--success, #10b981); opacity: 1; }
+.empty-icon.sent { color: var(--primary-400); opacity: 1; }
+.empty-icon.draft { color: var(--primary-400); opacity: 1; }
 
 .empty-title {
   font-size: var(--font-size-lg);

@@ -103,8 +103,8 @@ const selectedKey = computed(() => props.selectedProvider?.key || '')
 
 .provider-card.active {
   border-color: var(--primary-500);
-  background: rgba(99, 102, 241, 0.06);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), var(--shadow-md);
+  background: var(--selected-bg, var(--primary-50));
+  box-shadow: 0 0 0 3px var(--mail-selected-bg, var(--primary-100)), var(--shadow-md);
   transform: translateY(-2px);
 }
 
@@ -156,8 +156,8 @@ const selectedKey = computed(() => props.selectedProvider?.key || '')
   font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #6366F1, #A78BFA);
-  color: white;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-400));
+  color: var(--text-on-primary);
   letter-spacing: 0.5px;
 }
 

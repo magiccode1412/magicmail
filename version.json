@@ -1,8 +1,8 @@
 {
-  "latest": "v1.1.1",
-  "releaseDate": "2026-07-07",
-  "downloadUrl": "https://github.com/magiccode1412/magicmail/releases/tag/v1.0.1",
+  "latest": "v1.2.0",
+  "releaseDate": "2026-09-02",
+  "downloadUrl": "https://github.com/magiccode1412/magicmail/releases/tag/v1.2.0",
   "githubUrl": "https://github.com/magiccode1412/magicmail",
-  "homepageUrl": "https://160621.xyz/magicmail",
-  "versionApiUrl": "https://api.160621.xyz/v1/version/magicmail"
+  "homepageUrl": "https://magicmail.160621.xyz/",
+  "versionApiUrl": "https://api.160621.xyz/v1/magicmail/version"
 }

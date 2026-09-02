@@ -69,6 +69,18 @@
 
       <!-- 右侧表单区 -->
       <div class="login-form-area">
+
+        <!-- 飞牛统一网关提示（绑定在登录/注册时自动完成，无需用户手动选择） -->
+        <div v-if="authStore.gatewayAvailable && !authStore.isLoggedIn" class="fnos-panel">
+          <div class="fnos-tip">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            </svg>
+            <span v-if="authStore.fnosUsername">已关联飞牛账号「{{ authStore.fnosUsername }}」，登录后将自动绑定</span>
+            <span v-else>检测到飞牛登录，完成账号操作后自动绑定当前飞牛账号</span>
+          </div>
+        </div>
+
         <transition name="form-slide" mode="out-in">
           <!-- 登录表单 -->
           <div v-if="!isRegister" key="login" class="form-panel">
@@ -151,8 +163,8 @@
           <!-- 注册表单 -->
           <div v-else key="register" class="form-panel">
             <div class="form-header">
-              <h2 class="form-title">初始化管理员</h2>
-              <p class="form-subtitle">创建您的管理员账号以开始使用</p>
+              <h2 class="form-title">{{ registerTitle }}</h2>
+              <p class="form-subtitle">{{ registerSubtitle }}</p>
             </div>
 
             <form @submit.prevent="handleRegister" class="auth-form" autocomplete="on">
@@ -167,7 +179,7 @@
                 <input
                   v-model="regForm.username"
                   type="text"
-                  placeholder="设置管理员用户名"
+                  :placeholder="registerUsernamePlaceholder"
                   autocomplete="new-username"
                   autofocus
                   @focus="focused = 'username'"
@@ -248,7 +260,7 @@
         <div class="login-footer">
           <span>Magicmail</span>
           <span class="divider">·</span>
-          <span>v{{ __APP_VERSION__ }}</span>
+          <span>v{{ APP_VERSION }}</span>
         </div>
       </div>
     </div>
@@ -261,9 +273,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useAppStore } from '@/stores/appStore'
-
-// Vite define 注入的全局变量需在模板中显式引用
-const __APP_VERSION__ = import.meta.env.__APP_VERSION__ || '0.0.0'
+import { APP_VERSION } from '@/appVersion'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -291,9 +301,23 @@ const focused = ref('')
 const usernameInput = ref(null)
 const passwordInput = ref(null)
 
+// 飞牛网关提示状态：自动绑定由后端在登录/注册时完成，前端仅展示提示
+
 // 模式切换：登录 / 注册
 const isRegister = ref(authStore.setupRequired)
-const canRegister = computed(() => authStore.setupRequired)
+// 公开注册开启时，已存在用户也可自助注册为普通用户
+const canRegister = computed(() => authStore.setupRequired || authStore.openRegistration)
+// 是否为首次初始化（创建管理员）
+const isInitialSetup = computed(() => authStore.setupRequired)
+
+// 注册表单标题/副标题：区分“初始化管理员”与“开放注册”
+const registerTitle = computed(() => isInitialSetup.value ? '初始化管理员' : '创建账号')
+const registerSubtitle = computed(() =>
+  isInitialSetup.value ? '创建您的管理员账号以开始使用' : '注册一个新账号以使用 Magicmail'
+)
+const registerUsernamePlaceholder = computed(() =>
+  isInitialSetup.value ? '设置管理员用户名' : '设置用户名'
+)
 
 function switchToRegister() {
   isRegister.value = true
@@ -353,6 +377,12 @@ async function handleRegister() {
     submitting.value = false
   }
 }
+
+// ---- 飞牛网关登录 ----
+// 注意：飞牛账号的绑定与免密登录已自动化处理：
+//   - 已绑定用户在 store.init() 中自动免密登录进入系统；
+//   - 登录 / 注册提交时后端自动将当前账号绑定到飞牛身份。
+// 此处不再提供手动选择「飞牛登录/绑定」的交互。
 
 onMounted(async () => {
   if (!authStore.initialized) {
@@ -853,5 +883,32 @@ onMounted(async () => {
   .login-form-area { padding: 28px 24px 24px; }
   .brand-title { font-size: 24px; }
   .form-title { font-size: 20px; }
+}
+
+/* ====== 飞牛网关提示条 ====== */
+.fnos-panel {
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border: 1px solid rgba(79, 110, 247, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(79, 110, 247, 0.08), rgba(6, 182, 212, 0.06));
+}
+[data-theme="light"] .fnos-panel {
+  background: rgba(79, 110, 247, 0.06);
+  border-color: rgba(79, 110, 247, 0.22);
+}
+.fnos-tip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0;
+  text-align: center;
+}
+.fnos-tip svg {
+  flex-shrink: 0;
+  color: var(--info, #06B6D4);
 }
 </style>

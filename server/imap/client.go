@@ -6,6 +6,7 @@ package imap
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"gorm.io/gorm"
 )
 
 // MailClient 统一邮件客户端接口（IMAP / POP3 共用）
@@ -130,7 +132,10 @@ func (c *IMAPClient) authenticateOAuth2() error {
 		return fmt.Errorf("OAuth2 Provider 解析失败: %w", err)
 	}
 
-	accessToken := c.resolveAccessToken(provider, clientID)
+	accessToken, err := c.resolveAccessToken(provider, clientID)
+	if err != nil {
+		return err
+	}
 	if accessToken == "" {
 		return fmt.Errorf("无法获取有效的 AccessToken（可能需要重新授权）")
 	}
@@ -170,8 +175,10 @@ func (c *XOAUTH2Client) Next(challenge []byte) ([]byte, error) {
 	return []byte{}, nil
 }
 
-// resolveAccessToken 获取有效的 Access Token，过期则自动刷新
-func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID string) string {
+// resolveAccessToken 获取有效的 Access Token，过期则自动刷新。
+// 返回的 error 区分不同失败原因（解密失败 / RefreshToken 失效需重新授权 / 网络错误），
+// 方便运维通过日志一眼定位。
+func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID string) (string, error) {
 	// 检查是否需要刷新（提前 2 分钟刷新）
 	if c.Account.TokenExpiresAt != nil {
 		expiresAt := c.Account.TokenExpiresAt.Add(-2 * time.Minute)
@@ -179,21 +186,35 @@ func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID
 			// Password 字段复用存储内存中的 Access Token（运行时有效）
 			// 注：Password 在 AfterFind 后是明文，但 OAuth2 模式下这里存的是 AT
 			_ = clientID // 避免未使用警告，实际使用场景中 Password 即为 AT
-			return c.Account.Password
+			return c.Account.Password, nil
 		}
 	}
 
-	// Token 过期或不存在，尝试使用 RefreshToken 刷新
+	// 区分两种"无 RefreshToken"的情况：
+	//   1) AfterFind 解密失败（密钥不匹配/密文损坏）——属于数据/密钥问题，必须重新授权
+	//   2) 账号从未授权——正常提示重新授权
 	if c.Account.RefreshToken == "" {
-		log.Printf("[WARN] OAuth2 账号 %s 无 RefreshToken，需要用户重新授权", c.Account.Email)
-		return ""
+		if c.Account.RefreshTokenDecryptFailed {
+			log.Printf("❌ [OAuth2] 账号 %s 的 RefreshToken 解密失败（密钥不匹配或密文损坏），无法刷新 AccessToken，需用户重新授权",
+				c.Account.Email)
+			return "", fmt.Errorf("RefreshToken 解密失败（密钥不匹配或密文损坏），需用户重新授权")
+		}
+		log.Printf("[WARN] [OAuth2] 账号 %s 无 RefreshToken，需要用户重新授权", c.Account.Email)
+		return "", fmt.Errorf("账号未授权（无 RefreshToken），需要用户重新授权")
 	}
 
 	log.Printf("🔄 正在刷新 AccessToken (%s@%s)...", c.Account.Email, provider.Name())
 	tokenResp, err := provider.RefreshAccessToken(context.Background(), clientID, c.Account.RefreshToken)
 	if err != nil {
-		log.Printf("❌ RefreshToken 刷新失败 (%s): %v", c.Account.Email, err)
-		return ""
+		// 区分"RefreshToken 已被吊销"（需重新授权）与"网络/服务端临时错误"（可重试）
+		if errors.Is(err, oauth2.ErrRefreshTokenRevoked) {
+			log.Printf("❌ [OAuth2] AccessToken 刷新失败（%s）：RefreshToken 已被微软吊销/失效，需用户重新授权: %v",
+				c.Account.Email, err)
+		} else {
+			log.Printf("❌ [OAuth2] AccessToken 刷新失败（%s）：网络或服务端错误，可稍后重试: %v",
+				c.Account.Email, err)
+		}
+		return "", err
 	}
 
 	// 更新本地缓存（注意：此处仅更新运行时值，数据库更新需由上层调用方处理）
@@ -209,7 +230,36 @@ func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID
 	}
 
 	log.Printf("✅ AccessToken 刷新成功: %s (有效期 %v)", c.Account.Email, tokenResp.ExpiresIn)
-	return tokenResp.AccessToken
+	return tokenResp.AccessToken, nil
+}
+
+// persistOAuthTokens 将刷新得到的 OAuth2 Token 持久化到数据库。
+//
+// 背景：微软 Consumer 账号（Hotmail/Outlook）的 RefreshToken 会在刷新后轮换/被吊销。
+// 原实现仅在内存中更新 token，未落库，导致进程重启后会拿旧的已失效 RefreshToken 去刷新，
+// 从而报 “无法获取有效的 AccessToken（可能需要重新授权）”。此处将 RefreshToken、Access Token
+// 及过期时间一并写回，保证滚动后的 token 在重启后依然可用。
+//
+// 仅 OAuth2 账号需要此处理；传统密码账号直接跳过。
+func (c *IMAPClient) persistOAuthTokens(db *gorm.DB) error {
+	if !oauth2.IsOAuth2Account(c.Account.AuthType) {
+		return nil
+	}
+
+	updates := models.MailAccount{
+		Password:       c.Account.Password, // Access Token（明文，写入时由 BeforeUpdate 钩子加密）
+		RefreshToken:   c.Account.RefreshToken,
+		TokenExpiresAt: c.Account.TokenExpiresAt,
+	}
+	// 使用结构体更新：GORM 仅写入非零字段（Password / RefreshToken / TokenExpiresAt），
+	// 并触发 BeforeUpdate 钩子对敏感字段加密存储，不会覆盖其它列。
+	if err := db.Model(&models.MailAccount{}).
+		Where("id = ?", c.Account.ID).
+		Updates(&updates).Error; err != nil {
+		return fmt.Errorf("持久化 OAuth2 Token 失败: %w", err)
+	}
+	log.Printf("💾 已持久化刷新后的 OAuth2 Token (%s)", c.Account.Email)
+	return nil
 }
 
 // authenticateLogin 使用传统 LOGIN 命令进行密码认证

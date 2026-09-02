@@ -6,6 +6,7 @@ package middleware
 import (
 	"strings"
 
+	"magicmail/models"
 	"magicmail/services"
 
 	"github.com/gofiber/fiber/v2"
@@ -45,9 +46,55 @@ func AuthRequired(authService *services.AuthService) fiber.Handler {
 			return c.Status(401).JSON(fiber.Map{"error": "无法解析认证信息"})
 		}
 
-		c.Locals("user_id", claims["user_id"])
-		c.Locals("username", claims["username"])
+		userID, ok := claims["user_id"].(float64)
+		if !ok {
+			return c.Status(401).JSON(fiber.Map{"error": "无法解析认证信息"})
+		}
+		c.Locals("user_id", userID)
+
+		// ⭐ 校验用户是否仍存在：删除用户后，已签发的 JWT 在过期前仍有效，
+		// 因此每次请求都在数据库核验用户，不存在则强制 401（前端据此清除登录态）。
+		user, err := authService.GetUserByID(uint(userID))
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "账号已被注销，请重新登录"})
+		}
+
+		// 以数据库中的权威角色为准，避免角色被降权后旧 token 仍可越权
+		c.Locals("username", user.Username)
+		c.Locals("role", user.Role)
 
 		return c.Next()
 	}
+}
+
+// AdminRequired 管理员权限中间件：必须登录且角色为 admin
+func AdminRequired() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		role, _ := c.Locals("role").(string)
+		if role != models.RoleAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "需要管理员权限"})
+		}
+		return c.Next()
+	}
+}
+
+// GatewayIdentity 从飞牛统一网关注入的 Header 中读取当前登录的飞牛用户身份。
+//
+// ⚠️ 安全约束：身份是否可信由「连接来源」决定，而非路径。
+// 只有来自统一网关的 Unix Socket 连接才被认定为网关请求（IsGatewayRequest），
+// 其它入口（自建 TCP 部署 / Docker / 反向代理 / app.Test）即使携带 X-Trim-Userid
+// 也一律不读取、不信任，伪造 Header 无效。
+//
+// 返回 (fnosUID, username, ok)：ok=false 表示当前并非飞牛网关环境（非 Unix Socket 连接或无 X-Trim-Userid）。
+func GatewayIdentity(c *fiber.Ctx) (fnosUID string, username string, ok bool) {
+	if !IsGatewayRequest(c) {
+		// 非 Unix Socket 入口：一律不认 X-Trim-*，伪造无效
+		return "", "", false
+	}
+	fnosUID = c.Get("X-Trim-Userid")
+	if fnosUID == "" {
+		return "", "", false
+	}
+	username = c.Get("X-Trim-Username")
+	return fnosUID, username, true
 }

@@ -54,7 +54,7 @@ POST /api/v1/accounts
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | name | string | 是 | 显示名称 |
-| email | string | 是 | 邮箱地址 |
+| email | string | 否 | 邮箱地址（留空时自动复用 username）|
 | host | string | 是 | IMAP 主机地址 |
 | port | integer | 是 | IMAP 端口（通常 993 或 143）|
 | username | string | 是 | IMAP 登录用户名 |

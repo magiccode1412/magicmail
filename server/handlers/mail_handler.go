@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"magicmail/services"
 	"magicmail/models"
+	"magicmail/notifier"
+	"magicmail/services"
 	"magicmail/smtp"
+	"magicmail/sse"
 	"strconv"
 	"strings"
 	"time"
@@ -45,8 +47,8 @@ func NewMailHandler(svc *services.MailService) *MailHandler {
 func (h *MailHandler) List(c *fiber.Ctx) error {
 	filter := models.MailListFilter{
 		Page:      1,
-		PageSize: 20,
-		SortBy:   "sent_at",
+		PageSize:  20,
+		SortBy:    "sent_at",
 		SortOrder: "desc",
 	}
 
@@ -85,7 +87,7 @@ func (h *MailHandler) List(c *fiber.Ctx) error {
 		filter.SortOrder = "desc"
 	}
 
-	mails, total, err := h.service.List(filter)
+	mails, total, err := h.service.List(filter, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error":  "获取邮件列表失败",
@@ -94,8 +96,8 @@ func (h *MailHandler) List(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"data":       mails,
-		"total":      total,
+		"data":      mails,
+		"total":     total,
 		"page":      filter.Page,
 		"page_size": filter.PageSize,
 	})
@@ -114,7 +116,7 @@ func (h *MailHandler) Get(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	mail, err := h.service.GetByID(uint(id))
+	mail, err := h.service.GetByID(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "邮件不存在"})
 	}
@@ -143,10 +145,14 @@ func (h *MailHandler) MarkAsRead(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 
-	err = h.service.MarkAsRead(uint(id), body.IsRead)
+	err = h.service.MarkAsRead(uint(id), body.IsRead, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
+
+	// 推送实时事件，触发客户端自动刷新列表（携带账号维度，便于前端按账号过滤）
+	accountID, _ := h.service.GetMailAccountID(uint(id), getUserID(c))
+	sse.PublishMailSynced(getUserID(c), accountID, "")
 
 	status := "未读"
 	if body.IsRead {
@@ -179,7 +185,7 @@ func (h *MailHandler) MarkAsStarred(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
 	}
 
-	err = h.service.MarkAsStarred(uint(id), body.Starred)
+	err = h.service.MarkAsStarred(uint(id), body.Starred, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
@@ -206,10 +212,19 @@ func (h *MailHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	result := h.service.Delete(uint(id))
+	// 先获取账号维度（删除后再查将查不到），用于 SSE 事件携带
+	accountID, _ := h.service.GetMailAccountID(uint(id), getUserID(c))
+	result := h.service.Delete(uint(id), getUserID(c))
 	if !result.Success {
-		return c.Status(500).JSON(fiber.Map{"error": "删除失败"})
+		msg := "删除失败"
+		if result.ServerDeleteError != "" {
+			msg = "源服务器删除失败，本地邮件已保留：" + result.ServerDeleteError
+		}
+		return c.Status(500).JSON(fiber.Map{"error": msg})
 	}
+
+	// 推送实时事件：携带被删邮件 ID，供其它标签页/客户端即时从本地列表移除（无需整列表刷新）
+	sse.PublishMailDeleted(getUserID(c), accountID, []uint{uint(id)})
 
 	return c.JSON(result)
 }
@@ -226,14 +241,29 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请选择要删除的邮件"})
 	}
 
-	result := h.service.BatchDelete(req.IDs)
+	result := h.service.BatchDelete(req.IDs, getUserID(c))
+
+	// 仅对“本地删除成功”的邮件广播删除事件；云端删除失败而被保留本地的邮件不应被其它客户端移除
+	failedSet := make(map[uint]bool, len(result.Failed))
+	for _, id := range result.Failed {
+		failedSet[id] = true
+	}
+	successfulIDs := make([]uint, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if !failedSet[id] {
+			successfulIDs = append(successfulIDs, id)
+		}
+	}
+	if len(successfulIDs) > 0 {
+		sse.PublishMailDeleted(getUserID(c), 0, successfulIDs)
+	}
 
 	return c.JSON(fiber.Map{
-		"success":           result.Success,
-		"deleted":           result.Deleted,
-		"failed":            result.Failed,
+		"success":            result.Success,
+		"deleted":            result.Deleted,
+		"failed":             result.Failed,
 		"server_sync_result": result.ServerSyncResult,
-		"message":           fmt.Sprintf("已删除 %d 封邮件", result.Deleted),
+		"message":            fmt.Sprintf("已删除 %d 封邮件", result.Deleted),
 	})
 }
 
@@ -250,7 +280,10 @@ func (h *MailHandler) BatchMarkAsRead(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请选择要操作的邮件"})
 	}
 
-	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead)
+	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead, getUserID(c))
+
+	// 推送实时事件，触发客户端自动刷新列表
+	sse.PublishMailSynced(getUserID(c), 0, "")
 
 	status := "未读"
 	if req.IsRead {
@@ -291,10 +324,13 @@ func (h *MailHandler) MarkAllAsRead(c *fiber.Ctx) error {
 		HasAttachment: body.HasAttachment,
 	}
 
-	updated, err := h.service.MarkAllAsRead(filter)
+	updated, err := h.service.MarkAllAsRead(filter, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
 	}
+
+	// 推送实时事件，触发客户端自动刷新列表（携带账号维度）
+	sse.PublishMailSynced(getUserID(c), body.AccountID, "")
 
 	return c.JSON(fiber.Map{
 		"success": true,
@@ -319,7 +355,7 @@ func (h *MailHandler) GetStats(c *fiber.Ctx) error {
 		}
 	}
 
-	stats := h.service.GetStats(accountID)
+	stats := h.service.GetStats(accountID, getUserID(c))
 	return c.JSON(stats)
 }
 
@@ -359,7 +395,7 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "邮件主题包含非法字符"})
 	}
 
-	result, err := h.service.SendMail(req)
+	result, err := h.service.SendMail(req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"success": false,
@@ -369,21 +405,21 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 	}
 
 	// 发送成功后，保存邮件记录到数据库（folder=sent）
-	senderEmail, _ := h.service.GetAccountEmail(req.AccountID)
+	senderEmail, _ := h.service.GetAccountEmail(req.AccountID, getUserID(c))
 	toJSON, _ := json.Marshal(req.To)
 	ccJSON, _ := json.Marshal(req.Cc)
 
 	sentMail := models.Mail{
-		AccountID:  req.AccountID,
-		MessageID:  result.MessageID,
-		Folder:     "sent",
-		From:       senderEmail,
-		To:         string(toJSON),
-		Cc:         string(ccJSON),
-		Subject:    req.Subject,
-		TextBody:   sql.NullString{String: req.Body, Valid: req.Body != ""},
-		SentAt:     time.Now(),
-		IsRead:     true,
+		AccountID: req.AccountID,
+		MessageID: result.MessageID,
+		Folder:    "sent",
+		From:      senderEmail,
+		To:        string(toJSON),
+		Cc:        string(ccJSON),
+		Subject:   req.Subject,
+		TextBody:  sql.NullString{String: req.Body, Valid: req.Body != ""},
+		SentAt:    time.Now(),
+		IsRead:    true,
 	}
 	if req.HTMLBody != "" {
 		sentMail.HTMLBody = sql.NullString{String: req.HTMLBody, Valid: true}
@@ -392,6 +428,26 @@ func (h *MailHandler) Send(c *fiber.Ctx) error {
 		// 保存失败不回滚发送结果，仅记录日志
 		log.Printf("[WARN] 保存已发送邮件记录失败: %v", err)
 	}
+
+	// 触发 mail.sent 事件（webhook + SSE + 推送），与 mail.received 对称
+	sentData := map[string]interface{}{
+		"account_id":    req.AccountID,
+		"account_email": senderEmail,
+		"subject":       req.Subject,
+		"from":          senderEmail,
+		"to":            string(toJSON),
+		"cc":            string(ccJSON),
+		"sent_at":       sentMail.SentAt.Format("2006-01-02 15:04:05"),
+		"message_id":    result.MessageID,
+	}
+	notifier.TriggerByEvent(h.service.GetDB(), "mail.sent", sentData, getUserID(c))
+	sse.PublishMailSent(getUserID(c), req.AccountID, senderEmail, sentData)
+	notifier.SendPushNotification(
+		getUserID(c),
+		"📤 邮件已发送",
+		fmt.Sprintf("主题：%s", req.Subject),
+		map[string]interface{}{"account_id": req.AccountID, "subject": req.Subject},
+	)
 
 	return c.JSON(fiber.Map{
 		"success":   true,

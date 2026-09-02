@@ -4,6 +4,8 @@
 -->
 <template>
   <div class="mail-list-view">
+    <!-- 顶部功能区（进入多选模式后吸顶固定，不随列表滚动） -->
+    <div class="mail-list-header" :class="{ 'is-sticky': selectable }">
     <!-- 批量操作工具栏 -->
     <transition name="fade">
       <div v-if="selectable" class="batch-bar">
@@ -52,7 +54,7 @@
           @click="handleFilter(tab.key)"
         >
           {{ tab.label }}
-          <span v-if="tab.count !== undefined" class="tab-count">{{ tab.count }}</span>
+          <span v-if="tab.count > 0" class="tab-count">{{ tab.count }}</span>
         </button>
       </div>
 
@@ -147,6 +149,7 @@
           </transition>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- 邮件列表区域 -->
@@ -513,6 +516,11 @@ watch(() => appStore.mailPageSize, (newSize) => {
   }
 })
 
+// 顶部全局搜索框：关键词变化时在当前列表（收件箱）内就地筛选
+watch(() => appStore.searchKeyword, (kw) => {
+  mailStore.setFilter('keyword', kw)
+})
+
 onMounted(async () => {
   // 初始化每页显示数量（从全局设置）
   mailStore.pageSize = appStore.mailPageSize
@@ -527,12 +535,10 @@ onMounted(async () => {
   if (q.keyword) appStore.setSearchKeyword(q.keyword)
   if (q.is_read) activeFilter.value = q.is_read === 'true' ? 'unread' : 'read'
 
-  // 设置默认文件夹为收件箱（不传 folder 时默认 inbox）
-  if (!mailStore.filters.folder || mailStore.filters.folder === '') {
-    mailStore.setFilter('folder', 'inbox')
-  } else {
-    await mailStore.fetchMails(1)
-  }
+  // 设置默认文件夹为收件箱并应用搜索关键词，统一刷新一次
+  mailStore.filters.folder = 'inbox'
+  mailStore.filters.keyword = appStore.searchKeyword
+  await mailStore.fetchMails(1)
 
   // 获取统计信息（用于标签计数）
   mailStore.fetchStats()
@@ -550,8 +556,12 @@ function handleDocumentClick(e) {
 }
 
 onActivated(() => {
-  // 从缓存恢复时重置为收件箱并刷新列表数据
-  mailStore.setFilter('folder', 'inbox')
+  // 从缓存恢复时刷新列表数据（保留当前页码与筛选条件，避免被重置到第 1 页）
+  // ⚠️ 必须先把 folder 还原为收件箱：因 MailList 与 Sent 共用同一个 mailStore
+  // （filters.folder / mails 都是共享的），若此处不重置，会从其它视图切回时
+  // 带着 folder='sent'（或其它值）去请求，导致收件箱页面误显示已发送邮件。
+  mailStore.filters.folder = 'inbox'
+  mailStore.filters.keyword = appStore.searchKeyword
   mailStore.fetchMails(mailStore.currentPage)
   mailStore.fetchStats()
   startRefreshTimer()
@@ -590,6 +600,25 @@ function stopRefreshTimer() {
   flex-direction: column;
   gap: var(--space-md);
   min-height: calc(100vh - var(--header-height) - 48px);
+}
+
+/* ---- 顶部功能区包裹层 ---- */
+.mail-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* 进入多选模式后吸顶固定，不随列表滚动 */
+.mail-list-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 与内容区卡片背景一致，避免列表内容在吸顶区下方透出 */
+  background: var(--bg-primary);
+  /* 吸顶时与下方列表留出间距，但不额外撑高整体 */
+  padding-bottom: var(--space-md);
+  margin-bottom: calc(-1 * var(--space-md));
 }
 
 /* ---- 批量操作工具栏 ---- */

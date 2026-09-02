@@ -75,7 +75,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // API 缓存（排除 SSE 流）
 registerRoute(
-  ({ url }) => url.pathname.startsWith('/api') && !url.pathname.includes('/mails/stream'),
+  ({ url }) => url.pathname.startsWith(import.meta.env.BASE_URL + 'api') && !url.pathname.includes('/mails/stream'),
   new StaleWhileRevalidate({
     cacheName: 'api-cache',
     plugins: [

@@ -19,7 +19,7 @@ export async function downloadAttachment(id) {
 // 构造下载链接（直接浏览器下载）
 export function getAttachmentDownloadUrl(id) {
   const token = localStorage.getItem('magicmail-token')
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
-  const url = `${baseUrl}/api/v1/attachments/${id}/download`
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL
+  const url = `${baseUrl}api/v1/attachments/${id}/download`
   return token ? `${url}?token=${encodeURIComponent(token)}` : url
 }

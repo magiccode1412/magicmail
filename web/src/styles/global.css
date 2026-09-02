@@ -77,6 +77,15 @@ a:hover { opacity: 0.85; }
 }
 .btn-primary:active { transform: translateY(0); }
 
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
 .btn-secondary {
   background: var(--bg-tertiary);
   color: var(--text-secondary);

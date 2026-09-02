@@ -27,7 +27,7 @@ func NewWebhookHandler(svc *services.WebhookService) *WebhookHandler {
 
 // List 获取所有 Webhook
 func (h *WebhookHandler) List(c *fiber.Ctx) error {
-	hooks, err := h.service.List()
+	hooks, err := h.service.List(getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "获取 Webhook 列表失败"})
 	}
@@ -41,7 +41,7 @@ func (h *WebhookHandler) Get(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	hook, err := h.service.GetByID(uint(id))
+	hook, err := h.service.GetByID(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Webhook 不存在"})
 	}
@@ -60,7 +60,7 @@ func (h *WebhookHandler) Create(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "名称和 URL 不能为空"})
 	}
 
-	hook, err := h.service.Create(req)
+	hook, err := h.service.Create(req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "创建失败", "detail": err.Error()})
 	}
@@ -84,7 +84,7 @@ func (h *WebhookHandler) Update(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "名称和 URL 不能为空"})
 	}
 
-	hook, err := h.service.Update(uint(id), req)
+	hook, err := h.service.Update(uint(id), req, getUserID(c))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "更新失败", "detail": err.Error()})
 	}
@@ -99,7 +99,7 @@ func (h *WebhookHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	if err := h.service.Delete(uint(id)); err != nil {
+	if err := h.service.Delete(uint(id), getUserID(c)); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "删除失败", "detail": err.Error()})
 	}
 
@@ -113,7 +113,7 @@ func (h *WebhookHandler) Test(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 ID"})
 	}
 
-	result, err := h.service.Test(uint(id))
+	result, err := h.service.Test(uint(id), getUserID(c))
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Webhook 不存在"})
 	}
@@ -129,7 +129,7 @@ func (h *WebhookHandler) GetLogs(c *fiber.Ctx) error {
 	}
 
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
-	logs, err := h.service.GetLogs(uint(id), limit)
+	logs, err := h.service.GetLogs(uint(id), getUserID(c), limit)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "获取日志失败"})
 	}
@@ -187,13 +187,13 @@ func (h *WebhookHandler) SimulateMailReceived(c *fiber.Ctx) error {
 			"text_body":     mail["text_body"],
 			"html_body":     mail["html_body"],
 			"timestamp":     nowTs,
-		})
+		}, getUserID(c))
 		triggeredCount++
 	}
 
 	// 触发 Web Push 离线推送
 	notifier.SendPushNotification(
-		1,
+		getUserID(c),
 		fmt.Sprintf("📧 模拟收到 %d 封新邮件", triggeredCount),
 		fmt.Sprintf("来自 %s", req.AccountEmail),
 		map[string]interface{}{"event": "simulate"},

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"magicmail/sse"
+
 	"gorm.io/gorm"
 )
 
@@ -36,12 +38,16 @@ type hookInfo struct {
 }
 
 // TriggerByEvent 查询匹配的 Webhook 并异步推送（供 Worker 调用，避免循环依赖）
-func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}) {
-	var hooks []hookInfo
-	if err := db.Table("webhooks").
+// userID 用于按用户隔离：仅触发该用户创建的 Webhook；userID=0 表示触发全部（兼容旧行为）
+func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}, userID uint) {
+	query := db.Table("webhooks").
 		Select("id, url, secret, headers, body").
-		Where("enabled = ?", true).
-		Find(&hooks).Error; err != nil {
+		Where("enabled = ?", true)
+	if userID != 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	var hooks []hookInfo
+	if err := query.Find(&hooks).Error; err != nil {
 		log.Printf("[Webhook] 查询失败: %v", err)
 		return
 	}
@@ -74,6 +80,14 @@ func TriggerByEvent(db *gorm.DB, event string, data map[string]interface{}) {
 				"last_trigger_at": now,
 				"error_msg":      errMsg,
 			})
+
+			// 实时推送 Webhook 投递结果（按用户隔离，供设置页即时刷新状态）
+			if result.Success {
+				sse.PublishWebhookDelivered(userID, hook.ID)
+			} else {
+				sse.PublishWebhookFailed(userID, hook.ID, errMsg)
+			}
+
 			log.Printf("[Webhook] %s -> %s (%dms) %s%s", event, hook.URL, result.Duration, status, func() string {
 			if status == "error" && result.ErrorMsg != "" {
 				return " | " + result.ErrorMsg

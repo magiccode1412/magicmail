@@ -238,8 +238,8 @@ async function downloadAttachmentWithProgress(id, onProgress) {
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const axios = (await import('axios')).default
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
-  const url = `${baseUrl}/api/v1/attachments/${id}/download`
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL
+  const url = `${baseUrl}api/v1/attachments/${id}/download`
 
   const response = await axios.get(url, {
     responseType: 'blob',

@@ -20,15 +20,25 @@ DATA_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
 # Go 二进制文件路径
 APP_BIN="${TRIM_APPDEST}/server/magicmail"
 
-# 服务端口（从 wizard 获取，为空时兜底 8080）
-PORT="${wizard_app_port}"
-[ -z "${PORT}" ] && PORT=23232
+# 统一网关 Unix Socket 路径（飞牛安装必定走 Socket）
+SOCK="${TRIM_APPDEST}/app.sock"
 
 # 数据库路径
 DB_PATH="${DATA_DIR}/magicmail.db"
 
 log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "${LOG_FILE}"
+}
+
+# 安全打印环境变量：默认脱敏（过滤含 SECRET/KEY/TOKEN/PASSWORD/CREDENTIAL/PRIVATE 等
+# 关键词的变量，避免把 MAGICMAIL_JWT_SECRET、MAGICMAIL_ENCRYPT_KEY 等密钥写入日志）；
+# 仅当显式设置 MAGICMAIL_DIAG=1 时才输出完整环境变量（用于深度排障）。
+dump_env() {
+    if [ "${MAGICMAIL_DIAG}" = "1" ] || [ "${MAGICMAIL_DIAG}" = "true" ]; then
+        env 2>/dev/null | sort || true
+    else
+        env 2>/dev/null | sort | grep -viE 'SECRET|KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE' || true
+    fi
 }
 
 # ============================================================
@@ -45,8 +55,8 @@ diag() {
         echo "CURRENT_USER: $(whoami)"
         echo "CURRENT_DIR: $(pwd)"
         echo ""
-        echo "--- [DEBUG] 完整环境变量 ---"
-        env 2>/dev/null | sort || echo "(env command failed)"
+        echo "--- [DEBUG] 环境变量（已脱敏，设 MAGICMAIL_DIAG=1 可输出完整） ---"
+        dump_env
         echo ""
         echo "--- [DEBUG] 飞牛内置变量 ---"
         echo "TRIM_PKGVAR         = [${TRIM_PKGVAR}] (length: ${#TRIM_PKGVAR})"
@@ -56,7 +66,7 @@ diag() {
         echo ""
         echo "--- [DEBUG] 应用计算变量 ---"
         echo "DATA_DIR            = [${DATA_DIR}]"
-        echo "PORT                = [${PORT}]"
+        echo "SOCK                = [${SOCK}]"
         echo "DB_PATH             = [${DB_PATH}]"
         echo "APP_BIN             = [${APP_BIN}]"
         echo ""
@@ -129,8 +139,12 @@ diag() {
         df -h / 2>/dev/null
         df -h "${TRIM_PKGVAR}" 2>/dev/null
         echo ""
-        echo "--- [DEBUG] 端口 ${PORT} 状态 ---"
-        ss -tlnp 2>/dev/null | grep ":${PORT}" || echo "Port ${PORT} appears free"
+        echo "--- [DEBUG] Unix Socket ${SOCK} 状态 ---"
+        if [ -S "${SOCK}" ]; then
+            ls -la "${SOCK}"
+        else
+            echo "Socket ${SOCK} not present"
+        fi
         echo ""
         echo "--- [DEBUG] 进程检查 ---"
         ps aux | grep -i magicmail 2>/dev/null | grep -v grep || echo "No magicmail process found"
@@ -208,27 +222,32 @@ start_process() {
         return 1
     fi
 
-    # 3. 检查端口是否被占用
-    log_msg "[DEBUG] Checking port ${PORT} availability"
-    if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-        log_msg "ERROR: Port ${PORT} already in use"
-        ss -tlnp 2>/dev/null | grep ":${PORT}" >> "${LOG_FILE}" 2>&1
-        return 1
+    # 3. 检查 Unix Socket 是否已被占用（残留文件且对应进程存活则报错）
+    log_msg "[DEBUG] Checking socket ${SOCK} availability"
+    if [ -S "${SOCK}" ]; then
+        log_msg "WARN: Stale socket ${SOCK} exists, will be removed by app on start"
     fi
 
     log_msg "Starting Magicmail..."
-    log_msg "PORT=${PORT} DB_PATH=${DB_PATH} DATA_DIR=${DATA_DIR}"
+    log_msg "SOCK=${SOCK} DB_PATH=${DB_PATH} DATA_DIR=${DATA_DIR}"
     log_msg "APP_BIN=${APP_BIN}"
 
-    # 4. 启动进程（增强日志）
-    #    MAGICMAIL_DSN: 数据库路径（Go 代码识别的环境变量）
-    #    MAGICMAIL_PORT: 监听端口
-    #    MAGICMAIL_HOST: 监听地址
-    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, PORT=${PORT}"
-    
+    # 4. 启动进程（飞牛统一网关模式：仅监听 Unix Socket）
+    #    不再提供 TCP 端口：统一网关已完成 NAS 级认证，额外监听端口等于开放一个
+    #    无保护的登录入口。需要端口访问请部署非飞牛版本（Docker / build.sh）。
     export MAGICMAIL_DSN="${DB_PATH}"
-    export MAGICMAIL_PORT="${PORT}"
-    export MAGICMAIL_HOST="0.0.0.0"
+    export MAGICMAIL_LISTEN="unix://${SOCK}"
+    # 与前端 BASE_URL、飞牛网关 gatewayPrefix（manifest 中的 /app/magicmail）保持一致。
+    # 网关会把该前缀整段透传，后端由 middleware.BasePath 在路由匹配前剥离，
+    # 因此后端只需维护一套根路由。
+    # 注意：修改此处需同步修改 fnapp/manifest 的 gatewayPrefix 与前端 vite BASE_URL。
+    export MAGICMAIL_BASE_PATH="/app/magicmail"
+
+    # 显式清除：防止从父进程环境或旧构建残留中继承，导致端口被意外监听
+    unset MAGICMAIL_TCP_ENABLED MAGICMAIL_TCP_ADDR
+    log_msg "模式: 仅使用飞牛统一网关（不监听 TCP 端口）"
+
+    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, LISTEN=unix://${SOCK}"
     
     nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
     local launch_rc=$?
@@ -245,8 +264,10 @@ start_process() {
     echo "Command: nohup ${APP_BIN}" >> "${DIAG_FILE}" 2>/dev/null
     echo "Environment:" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_DSN=${MAGICMAIL_DSN}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_PORT=${MAGICMAIL_PORT}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_HOST=${MAGICMAIL_HOST}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_LISTEN=${MAGICMAIL_LISTEN}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_BASE_PATH=${MAGICMAIL_BASE_PATH}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  listen_mode=unix-socket-only（仅统一网关，不监听 TCP）" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_TCP_ENABLED=unset" >> "${DIAG_FILE}" 2>/dev/null
 
     # 5. 等待确认启动
     local count=0
@@ -272,30 +293,29 @@ start_process() {
             return 1
         fi
 
-        # 检查端口是否已监听
-        if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-            log_msg "SUCCESS: Process is listening on port ${PORT}"
+        # 检查 Unix Socket 是否已创建
+        if [ -S "${SOCK}" ]; then
+            log_msg "SUCCESS: Process is listening on socket ${SOCK}"
             return 0
         fi
         
         # [DEBUG] 每3秒记录一次进程状态
         if [ $((count % 3)) -eq 0 ]; then
-            log_msg "[DEBUG] Port not yet listening, process still alive (PID=${pid})"
+            log_msg "[DEBUG] Socket not yet created, process still alive (PID=${pid})"
         fi
     done
 
-    # 6. 进程还活着但端口未监听？记录一下继续
+    # 6. 进程还活着但 socket 未创建？记录一下继续
     if check_process "${pid}"; then
-        log_msg "WARNING: Process running but port ${PORT} not yet listening after ${count}s"
+        log_msg "WARNING: Process running but socket ${SOCK} not yet created after ${count}s"
         
         # [调试] 获取进程更多信息
-        echo "=== PORT TIMEOUT REPORT ===" >> "${DIAG_FILE}" 2>/dev/null
+        echo "=== SOCKET TIMEOUT REPORT ===" >> "${DIAG_FILE}" 2>/dev/null
         echo "PID: ${pid}" >> "${DIAG_FILE}" 2>/dev/null
         echo "Waited: ${count}s" >> "${DIAG_FILE}" 2>/dev/null
         echo "Process info:" >> "${DIAG_FILE}" 2>/dev/null
         ps aux | grep "${pid}" | grep -v grep >> "${DIAG_FILE}" 2>/dev/null
-        echo "All network listeners:" >> "${DIAG_FILE}" 2>/dev/null
-        ss -tlnp 2>/dev/null >> "${DIAG_FILE}" 2>/dev/null || true
+        ls -la "${SOCK}" 2>/dev/null >> "${DIAG_FILE}" 2>/dev/null || echo "socket not found" >> "${DIAG_FILE}" 2>/dev/null
         
         return 0
     else
@@ -341,7 +361,7 @@ stop_process() {
             kill -KILL "${pid}"
             sleep 1
         fi
-        rm -f "${PID_FILE}"
+        rm -f "${PID_FILE}" "${SOCK}"
         log_msg "Stopped"
     else
         log_msg "No PID file found"

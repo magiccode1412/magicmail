@@ -70,7 +70,8 @@ function handleCancel() {
 /* ---- Toast 样式 ---- */
 .toast-container {
   position: fixed;
-  top: 20px;
+  /* 有更新横幅时下移，避免遮住横幅右侧（--update-banner-offset 继承自 .app） */
+  top: calc(20px + var(--update-banner-offset, 0px));
   right: 24px;
   z-index: calc(var(--z-modal) + 100);
   display: flex;

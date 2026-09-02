@@ -25,7 +25,8 @@ type OAuth2Provider interface {
 	EnvVarName() string
 
 	// GetDeviceCode 发起设备码授权请求
-	GetDeviceCode(ctx context.Context, clientID string) (*DeviceCodeResponse, error)
+	// loginHint 为可选的用户邮箱，用于预填微软登录页（可传空字符串）
+	GetDeviceCode(ctx context.Context, clientID, loginHint string) (*DeviceCodeResponse, error)
 
 	// PollToken 轮询 Token（使用 device_code换取 token）
 	PollToken(ctx context.Context, clientID string, deviceCode string) (*TokenResponse, error)

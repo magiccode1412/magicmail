@@ -4,6 +4,8 @@
 -->
 <template>
   <div class="sent-view">
+    <!-- 顶部功能区（进入多选模式后吸顶固定，不随列表滚动） -->
+    <div class="mail-list-header" :class="{ 'is-sticky': selectable }">
     <!-- 批量操作工具栏 -->
     <transition name="fade">
       <div v-if="selectable" class="batch-bar">
@@ -123,6 +125,7 @@
         </div>
       </div>
     </div>
+    </div>
 
     <!-- 邮件列表区域 -->
     <div class="mail-list-container" ref="listContainer">
@@ -174,11 +177,13 @@
 
 <script setup>
 defineOptions({ name: 'Sent' })
-import { ref, computed, onMounted, onActivated, onUnmounted, onDeactivated } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onUnmounted, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMailStore } from '@/stores/mailStore'
 import { useAccountStore } from '@/stores/accountStore'
+import { useAppStore } from '@/stores/appStore'
 import { useToast } from '@/composables/useToast'
+import { useMailStream } from '@/composables/useSSE'
 import MailItem from '../components/MailItem.vue'
 import Pagination from '../components/Pagination.vue'
 import EmptyState from '../components/EmptyState.vue'
@@ -187,6 +192,7 @@ const toast = useToast()
 const router = useRouter()
 const mailStore = useMailStore()
 const accountStore = useAccountStore()
+const appStore = useAppStore()
 
 // --- 筛选状态 ---
 const activeFilter = ref('all')
@@ -243,8 +249,16 @@ const currentPage = computed(() => mailStore.currentPage)
 const pageSize = computed(() => mailStore.pageSize)
 
 // 空状态文案
-const emptyTitle = computed(() => '暂无已发送邮件')
+const emptyTitle = computed(() => {
+  if (appStore.searchKeyword) return `未找到 "${appStore.searchKeyword}" 相关邮件`
+  return '暂无已发送邮件'
+})
 const emptyDescription = computed(() => '发送的邮件将显示在这里')
+
+// 顶部全局搜索框：关键词变化时在「已发送」列表内就地筛选
+watch(() => appStore.searchKeyword, (kw) => {
+  mailStore.setFilter('keyword', kw)
+})
 
 // --- 操作 ---
 async function handleFilter(filterKey) {
@@ -368,13 +382,31 @@ async function handleBatchDelete() {
 // --- 生命周期 ---
 let refreshTimer = null
 
+// ⭐ SSE 必须在 setup 同步阶段注册（同 MailListView），用于跨标签页实时更新
+const { connectionMode: sseMode } = useMailStream(() => {
+  // 收到新邮件/删除等事件时自动刷新当前「已发送」列表与统计
+  mailStore.fetchMails(mailStore.currentPage)
+  mailStore.fetchStats()
+}, {
+  onFallback: () => {
+    // SSE 失败后重启轮询（备用机制）
+    console.log('[Sent] SSE 不可用，使用轮询模式')
+    startRefreshTimer()
+  }
+})
+
+watch(sseMode, (mode) => {
+  if (mode) appStore.setConnectionMode(mode)
+}, { immediate: true })
+
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
     await accountStore.fetchAccounts()
   }
 
-  // 固定筛选 folder=sent
-  mailStore.setFilter('folder', 'sent')
+  // 固定筛选 folder=sent 并应用搜索关键词
+  mailStore.filters.folder = 'sent'
+  mailStore.filters.keyword = appStore.searchKeyword
   await mailStore.fetchMails(1)
   mailStore.fetchStats()
   startRefreshTimer()
@@ -388,7 +420,8 @@ function handleDocumentClick(e) {
 }
 
 onActivated(() => {
-  mailStore.setFilter('folder', 'sent')
+  mailStore.filters.folder = 'sent'
+  mailStore.filters.keyword = appStore.searchKeyword
   mailStore.fetchMails(mailStore.currentPage)
   mailStore.fetchStats()
   startRefreshTimer()
@@ -422,6 +455,25 @@ function stopRefreshTimer() {
   flex-direction: column;
   gap: var(--space-md);
   min-height: calc(100vh - var(--header-height) - 48px);
+}
+
+/* ---- 顶部功能区包裹层 ---- */
+.mail-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* 进入多选模式后吸顶固定，不随列表滚动 */
+.mail-list-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 与内容区卡片背景一致，避免列表内容在吸顶区下方透出 */
+  background: var(--bg-primary);
+  /* 吸顶时与下方列表留出间距，但不额外撑高整体 */
+  padding-bottom: var(--space-md);
+  margin-bottom: calc(-1 * var(--space-md));
 }
 
 /* ---- 批量操作工具栏 ---- */
@@ -736,6 +788,7 @@ function stopRefreshTimer() {
 .mail-list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-xs, 4px);
 }
 
 /* ---- 加载状态 ---- */

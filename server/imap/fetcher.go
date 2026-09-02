@@ -32,7 +32,7 @@ import (
 type Fetcher struct {
 	db            *gorm.DB
 	config        *config.Config
-	folder        string // 当前同步的文件夹名（inbox/sent）
+	folder        string // 当前同步的文件夹名（inbox）
 	SyncedMailIDs []uint // 本次同步成功入库的邮件ID列表（精确追踪，用于webhook）
 }
 
@@ -49,12 +49,7 @@ func (f *Fetcher) SyncMailbox(client *IMAPClient) (int, error) {
 	return f.syncMailbox(client, "INBOX", "inbox")
 }
 
-// SyncSentMailbox 同步已发送文件夹（Sent），返回新增/更新的邮件数量
-func (f *Fetcher) SyncSentMailbox(client *IMAPClient) (int, error) {
-	return f.syncMailbox(client, "Sent", "sent")
-}
-
-// syncMailbox 同步指定邮箱账号的指定 IMAP 文件夹
+// syncMailbox 同步指定邮箱账号的指定 IMAP 文件夹（当前仅 INBOX）
 func (f *Fetcher) syncMailbox(client *IMAPClient, mailboxName, folder string) (int, error) {
 	f.folder = folder
 	// 注意：不在此处重置 SyncedMailIDs，由调用方（worker）在创建 Fetcher 后统一管理
@@ -62,11 +57,6 @@ func (f *Fetcher) syncMailbox(client *IMAPClient, mailboxName, folder string) (i
 
 	mbox, err := client.SelectMailbox(mailboxName)
 	if err != nil {
-		// Sent 文件夹可能不存在或无权限，静默跳过不报错
-		if folder == "sent" {
-			log.Printf("⚠️  %s 的 %s 文件夹不可用，跳过同步: %v", client.Account.Email, mailboxName, err)
-			return 0, nil
-		}
 		return 0, err
 	}
 
@@ -191,6 +181,7 @@ func (f *Fetcher) parseMessage(client *IMAPClient, buf *imapclient.FetchMessageB
 
 	// 构建邮件对象（先不包含正文和附件信息）
 	mailObj := &models.Mail{
+		UserID:     client.Account.UserID,
 		AccountID:  client.Account.ID,
 		Folder:     f.folder,
 		MessageID:  messageID,

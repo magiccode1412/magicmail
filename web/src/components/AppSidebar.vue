@@ -18,7 +18,7 @@
             </linearGradient>
           </defs>
         </svg>
-        <span v-show="!collapsed" class="logo-text">Magicmail</span>
+        <span v-show="!collapsed" class="logo-text">魔法邮箱</span>
       </button>
       <button v-if="isMobile && !collapsed" class="btn-icon btn-ghost close-btn" @click="mobileOpen = false">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -142,6 +142,24 @@
           <span v-show="!collapsed" class="nav-label">设置</span>
         </transition>
       </router-link>
+
+      <!-- 关于 -->
+      <router-link
+        to="/about"
+        class="nav-item"
+        active-class="active"
+        @click="handleNavClick('/about')"
+      >
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="6.5" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M10 7.5v5M10 6.2v.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <transition name="fade-text">
+          <span v-show="!collapsed" class="nav-label">关于</span>
+        </transition>
+      </router-link>
     </nav>
 
     <!-- 底部信息 -->
@@ -172,6 +190,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAccountStore } from '@/stores/accountStore'
 import { useMailStore } from '@/stores/mailStore'
+import { useSSE } from '@/composables/useSSE'
 
 const props = defineProps({
   collapsed: Boolean,
@@ -182,6 +201,13 @@ const emit = defineEmits(['toggle', 'navigate'])
 const route = useRoute()
 const accountStore = useAccountStore()
 const mailStore = useMailStore()
+
+// 统计实时更新：邮件数据变化时刷新侧边栏未读角标（轻量，仅需 fetchStats）
+useSSE({
+  onStatsUpdated() {
+    mailStore.fetchStats()
+  },
+})
 
 const mobileOpen = ref(false)
 const isMobile = ref(window.innerWidth <= 1024)
@@ -223,7 +249,9 @@ onUnmounted(() => {
 <style scoped>
 .app-sidebar {
   position: fixed;
-  top: var(--space-md);
+  /* --update-banner-offset 继承自父级 .app：有更新横幅时才占位(40px)，
+     没有横幅时与原来的 var(--space-md) 完全一致 */
+  top: calc(var(--space-md) + var(--update-banner-offset, 0px));
   left: var(--space-md);
   bottom: var(--space-md);
   width: var(--sidebar-width);
@@ -421,7 +449,8 @@ onUnmounted(() => {
 
 @media (max-width: 1024px) {
   .app-sidebar {
-    top: 0;
+    /* 抽屉模式贴顶显示，同样为更新横幅让出高度 */
+    top: var(--update-banner-offset, 0px);
     left: 0;
     bottom: 0;
     border-radius: 0;

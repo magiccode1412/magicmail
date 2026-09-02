@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "MyApp.main": {
+      "title": "My App",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "",
+      "gatewayPrefix": "/app/myapp",
+      "gatewaySocket": "app.sock",
+      "url": "/app/myapp",
+      "allUsers": true
+    }
+  }
+}

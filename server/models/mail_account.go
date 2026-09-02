@@ -20,19 +20,23 @@ import (
 type MailAccount struct {
 	ID           uint       `json:"id" gorm:"primaryKey"`
 	Name         string     `json:"name" gorm:"type:varchar(100);not null;comment:显示名称"`
-	Email        string     `json:"email" gorm:"type:varchar(255);not null;uniqueIndex;comment:邮箱地址"`
+	Email        string     `json:"email" gorm:"type:varchar(255);not null;index:idx_user_email,unique;comment:邮箱地址(同一用户不可重复,不同用户可各自绑定)"`
 	Protocol     string     `json:"protocol" gorm:"type:varchar(10);not null;default:'imap';comment:邮件协议(imap/pop3)"`
 	ImapHost     string     `json:"host" gorm:"type:varchar(255);not null;comment:收信服务器地址"`
 	Port         int        `json:"port" gorm:"default:993;comment:收信端口"`
 	SmtpHost     string     `json:"smtp_host" gorm:"type:varchar(255);comment:SMTP发信服务器地址(为空则使用收信地址)"`
 	SmtpPort     int        `json:"smtp_port" gorm:"comment:SMTP端口(默认587)"`
 	Username     string     `json:"username" gorm:"type:varchar(255);not null;comment:登录用户名"`
+	UserID       uint       `json:"user_id" gorm:"index:idx_user_email,unique;not null;default:0;comment:所属用户ID"`
 	Password     string     `json:"-" gorm:"type:text;not null;comment:密码(AES-256-GCM加密存储)"`
 
 	// --- OAuth2 字段（可选，为空时走传统密码认证）---
 	AuthType        string     `json:"auth_type" gorm:"type:varchar(20);default:'';comment:认证类型(password/oauth2_microsoft/oauth2_google)"`
 	OAuthProvider    string     `json:"oauth_provider" gorm:"type:varchar(30);default:'';comment:OAuth2服务商(microsoft/google)"`
 	RefreshToken    string     `json:"-" gorm:"type:text;comment:OAuth2 Refresh Token(AES-256-GCM加密存储)"`
+	// RefreshTokenDecryptFailed 标记 AfterFind 解密 RefreshToken 是否失败（不持久化，仅运行时诊断用）。
+	// 解密失败时 RefreshToken 会被清空，此字段用于区分"从未授权"与"密文损坏/密钥不匹配"。
+	RefreshTokenDecryptFailed bool `json:"-" gorm:"-"`
 	CustomClientId  string     `json:"-" gorm:"type:text;comment:用户自定义OAuth2 Client ID(AES-256-GCM加密存储,为空则使用默认值)"`
 	TokenExpiresAt  *time.Time `json:"token_expires_at" gorm:"comment:Access Token 过期时间"`
 
@@ -89,6 +93,7 @@ func (a *MailAccount) AfterFind(tx *gorm.DB) error {
 		if err != nil {
 			log.Printf("[WARN] MailAccount#%d RefreshToken 解密失败: %v", a.ID, err)
 			a.RefreshToken = ""
+			a.RefreshTokenDecryptFailed = true
 		} else {
 			a.RefreshToken = decrypted
 		}
@@ -108,6 +113,10 @@ func (a *MailAccount) AfterFind(tx *gorm.DB) error {
 
 // setDefaultValues 设置默认值
 func (a *MailAccount) setDefaultValues() {
+	// 邮箱地址为可选项：未填写时复用登录用户名（多数服务商用户名即邮箱地址）
+	if a.Email == "" {
+		a.Email = a.Username
+	}
 	if a.Status == "" {
 		a.Status = "active"
 	}
@@ -224,7 +233,7 @@ func inferSMTPHost(imapHost string) string {
 }
 type AccountRequest struct {
 	Name           string `json:"name" validate:"required,min=1,max=100"`
-	Email          string `json:"email" validate:"required,email"`
+	Email          string `json:"email" validate:"omitempty,email"` // 可选，为空时复用 Username
 	Protocol       string `json:"protocol" validate:"omitempty,oneof=imap pop3 pop3-no-ssl"`
 	Host           string `json:"host" validate:"required"`
 	Port           int    `json:"port" validate:"min=1,max=65535"`
@@ -253,6 +262,7 @@ type AccountResponse struct {
 	Protocol       string      `json:"protocol"`
 	ImapHost       string      `json:"host"`
 	Port           int         `json:"port"`
+	Mode           string      `json:"mode"`              // 当前同步模式: idle/polling/syncing/stopped（由 Worker 实时上报，可能为空）
 	SmtpHost       string      `json:"smtp_host,omitempty"`
 	SmtpPort       int         `json:"smtp_port,omitempty"`
 	Username       string      `json:"username"`
@@ -286,6 +296,7 @@ type AccountListDTO struct {
 	SmtpHost       string     `gorm:"column:smtp_host" json:"smtp_host,omitempty"`
 	SmtpPort       int        `gorm:"column:smtp_port" json:"smtp_port,omitempty"`
 	Username       string     `json:"username"`
+	UserID         uint       `gorm:"column:user_id" json:"user_id"`
 	PasswordRaw    string     `gorm:"column:password" json:"-"`
 	AuthType       string     `gorm:"column:auth_type" json:"auth_type"`
 	OAuthProvider   string    `gorm:"column:oauth_provider" json:"oauth_provider"`

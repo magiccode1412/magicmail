@@ -33,18 +33,6 @@
             @oauth2-authorized="onOAuth2Authorized"
           />
         </div>
-
-        <!-- 底部按钮（子组件也可自行处理） -->
-        <div v-if="showBottomBar" class="wizard-footer">
-          <button v-if="step > 1" type="button" class="btn btn-secondary btn-sm" @click="goBack">
-            <ChevronLeft :size="16" /> 返回
-          </button>
-          <div class="spacer"></div>
-          <button v-if="step < totalSteps && canProceedNext" type="button" class="btn btn-primary btn-sm" @click="goNext">
-            {{ step === totalSteps - 1 ? '完成' : '下一步' }}
-            <ChevronRight v-if="step < totalSteps - 1" :size="16" />
-          </button>
-        </div>
       </div>
     </div>
   </Teleport>
@@ -52,7 +40,7 @@
 
 <script setup>
 import { ref, reactive, computed, defineAsyncComponent } from 'vue'
-import { X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { X } from 'lucide-vue-next'
 import { createAccount } from '@/api/account'
 import { useToast } from '@/composables/useToast'
 import WizardStepProvider from './WizardStepProvider.vue'
@@ -108,14 +96,6 @@ const currentStepComponent = computed(() => {
   }
 })
 
-const showBottomBar = computed(() => step.value !== 2)
-
-const canProceedNext = computed(() => {
-  if (step.value === 1) return !!selectedProvider.value
-  if (step.value === 3) return true
-  return false
-})
-
 function onSelectProvider(provider) {
   selectedProvider.value = provider
   // 预填充服务商预设配置
@@ -128,6 +108,8 @@ function onSelectProvider(provider) {
     formData.smtp_host = ''
     formData.smtp_port = null
   }
+  // 选中服务商后直接进入下一步配置，无需再点“下一步”
+  goNext()
 }
 
 function goNext() {
@@ -148,6 +130,10 @@ function onOAuth2Authorized(tokenData) {
   formData.oauth_provider = tokenData.provider
   formData.refresh_token = tokenData.refresh_token
   formData.token_expires_at = tokenData.token_expires_at
+  // 授权成功时后端会回传邮箱（从 id_token 解析），自动填充
+  if (tokenData.email) {
+    formData.email = tokenData.email
+  }
 }
 
 async function handleComplete() {
@@ -200,7 +186,7 @@ function handleCancel() {
   max-height: 90vh;
   background: var(--bg-primary);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl), 0 0 80px rgba(99, 102, 241, 0.12);
+  box-shadow: var(--shadow-xl), 0 0 80px var(--shadow-glow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -233,7 +219,7 @@ function handleCancel() {
 }
 .step-dot.active {
   background: var(--primary-500);
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 8px var(--shadow-glow);
 }
 .step-dot.current {
   transform: scale(1.4);
@@ -257,15 +243,6 @@ function handleCancel() {
   overflow-y: auto;
   padding: 0 var(--space-lg) var(--space-md);
 }
-
-.wizard-footer {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md) var(--space-lg);
-  border-top: 1px solid var(--border-light);
-}
-.spacer { flex: 1; }
 
 @media (max-width: 480px) {
   .wizard-modal { max-height: 95vh; border-radius: var(--radius-lg); }

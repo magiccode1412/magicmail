@@ -3,7 +3,15 @@
 
 package oauth2
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrRefreshTokenRevoked 表示 OAuth2 Refresh Token 已被吊销/失效
+// （如微软返回 invalid_grant）。此时无法通过刷新恢复，必须引导用户重新授权。
+// 上层调用方可用 errors.Is 识别该错误，与"网络/服务端临时错误"区分。
+var ErrRefreshTokenRevoked = errors.New("refresh token 已失效/被吊销")
 
 // DeviceCodeResponse 设备码授权响应（返回给前端）
 type DeviceCodeResponse struct {
@@ -21,6 +29,7 @@ type TokenResponse struct {
 	ExpiresIn    time.Duration `json:"expires_in"`
 	TokenType    string        `json:"token_type"` // 通常为 "Bearer"
 	Scope        string        `json:"scope"`
+	IDToken      string        `json:"id_token"`  // OIDC id_token（Microsoft 等 IdP 返回）
 }
 
 // PendingError 授权待处理错误（用户尚未完成授权）

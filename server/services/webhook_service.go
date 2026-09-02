@@ -35,17 +35,17 @@ func NewWebhookService(db *gorm.DB) *WebhookService {
 	}
 }
 
-// TriggerByEvent 根据事件名触发所有匹配的 Webhook（复用 notifier 包）
-func (s *WebhookService) TriggerByEvent(event string, data map[string]interface{}) {
-	notifier.TriggerByEvent(s.db, event, data)
+// TriggerByEvent 根据事件名触发匹配的 Webhook（按用户隔离）
+func (s *WebhookService) TriggerByEvent(event string, data map[string]interface{}, userID uint) {
+	notifier.TriggerByEvent(s.db, event, data, userID)
 }
 
 // --- CRUD ---
 
-// List 获取所有 Webhook 列表
-func (s *WebhookService) List() ([]models.WebhookResponse, error) {
+// List 获取指定用户的 Webhook 列表
+func (s *WebhookService) List(userID uint) ([]models.WebhookResponse, error) {
 	var hooks []models.Webhook
-	if err := s.db.Order("created_at DESC").Find(&hooks).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&hooks).Error; err != nil {
 		return nil, err
 	}
 	responses := make([]models.WebhookResponse, len(hooks))
@@ -55,18 +55,18 @@ func (s *WebhookService) List() ([]models.WebhookResponse, error) {
 	return responses, nil
 }
 
-// GetByID 获取单个 Webhook 详情
-func (s *WebhookService) GetByID(id uint) (*models.WebhookResponse, error) {
+// GetByID 获取单个 Webhook 详情（校验归属用户）
+func (s *WebhookService) GetByID(id, userID uint) (*models.WebhookResponse, error) {
 	var hook models.Webhook
-	if err := s.db.First(&hook, id).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).First(&hook, id).Error; err != nil {
 		return nil, err
 	}
 	resp := s.toResponse(hook)
 	return &resp, nil
 }
 
-// Create 创建 Webhook
-func (s *WebhookService) Create(req models.WebhookRequest) (*models.WebhookResponse, error) {
+// Create 创建 Webhook（归属当前用户）
+func (s *WebhookService) Create(req models.WebhookRequest, userID uint) (*models.WebhookResponse, error) {
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -76,6 +76,7 @@ func (s *WebhookService) Create(req models.WebhookRequest) (*models.WebhookRespo
 	}
 
 	hook := models.Webhook{
+		UserID:  userID,
 		Name:    req.Name,
 		URL:     req.URL,
 		Events:  req.Events,
@@ -93,10 +94,10 @@ func (s *WebhookService) Create(req models.WebhookRequest) (*models.WebhookRespo
 	return &resp, nil
 }
 
-// Update 更新 Webhook
-func (s *WebhookService) Update(id uint, req models.WebhookRequest) (*models.WebhookResponse, error) {
+// Update 更新 Webhook（校验归属用户）
+func (s *WebhookService) Update(id uint, req models.WebhookRequest, userID uint) (*models.WebhookResponse, error) {
 	var hook models.Webhook
-	if err := s.db.First(&hook, id).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).First(&hook, id).Error; err != nil {
 		return nil, err
 	}
 
@@ -124,9 +125,9 @@ func (s *WebhookService) Update(id uint, req models.WebhookRequest) (*models.Web
 	return &resp, nil
 }
 
-// Delete 删除 Webhook
-func (s *WebhookService) Delete(id uint) error {
-	result := s.db.Delete(&models.Webhook{}, id)
+// Delete 删除 Webhook（校验归属用户）
+func (s *WebhookService) Delete(id, userID uint) error {
+	result := s.db.Where("user_id = ?", userID).Delete(&models.Webhook{}, id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -138,10 +139,10 @@ func (s *WebhookService) Delete(id uint) error {
 	return nil
 }
 
-// Test 发送测试请求
-func (s *WebhookService) Test(id uint) (*TestResult, error) {
+// Test 发送测试请求（校验归属用户）
+func (s *WebhookService) Test(id, userID uint) (*TestResult, error) {
 	var hook models.Webhook
-	if err := s.db.First(&hook, id).Error; err != nil {
+	if err := s.db.Where("user_id = ?", userID).First(&hook, id).Error; err != nil {
 		return nil, err
 	}
 
@@ -268,11 +269,16 @@ func (s *WebhookService) saveLog(webhookID uint, event string, result *TestResul
 	}
 }
 
-// GetLogs 获取指定 Webhook 的最近日志
-func (s *WebhookService) GetLogs(webhookID uint, limit int) ([]models.WebhookLog, error) {
+// GetLogs 获取指定 Webhook 的最近日志（校验归属用户）
+func (s *WebhookService) GetLogs(webhookID, userID uint, limit int) ([]models.WebhookLog, error) {
 	var logs []models.WebhookLog
 	if limit <= 0 || limit > 50 {
 		limit = 20
+	}
+	// 先确认 webhook 归属当前用户
+	var hook models.Webhook
+	if err := s.db.Where("user_id = ?", userID).First(&hook, webhookID).Error; err != nil {
+		return nil, err
 	}
 	if err := s.db.Where("webhook_id = ?", webhookID).
 		Order("created_at DESC").

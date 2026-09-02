@@ -5,6 +5,7 @@ package oauth2
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,9 +26,11 @@ const (
 
 	// Microsoft 授权范围（用户委托流程必须使用 outlook.office.com，不能用 outlook.office365.com）
 	// 参考: https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth
-	microsoftIMAPScope   = "https://outlook.office.com/IMAP.AccessAsUser.All"
-	microsoftSMTPScope   = "https://outlook.office.com/SMTP.Send"
+	microsoftIMAPScope    = "https://outlook.office.com/IMAP.AccessAsUser.All"
+	microsoftSMTPScope    = "https://outlook.office.com/SMTP.Send"
 	microsoftOfflineScope = "offline_access" // 获取 Refresh Token
+	microsoftOpenIDScope = "openid"          // 获取 id_token（含用户标识）
+	microsoftEmailScope  = "email"           // 在 id_token 中包含 email 声明
 )
 
 // MicrosoftProvider Microsoft/Outlook/Hotmail OAuth2 Provider 实现
@@ -53,6 +56,8 @@ func (p *MicrosoftProvider) Scopes() []string {
 		microsoftIMAPScope,
 		microsoftSMTPScope,
 		microsoftOfflineScope,
+		microsoftOpenIDScope,
+		microsoftEmailScope,
 	}
 }
 
@@ -64,12 +69,15 @@ func (p *MicrosoftProvider) EnvVarName() string {
 	return "MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID"
 }
 
-func (p *MicrosoftProvider) GetDeviceCode(ctx context.Context, clientID string) (*DeviceCodeResponse, error) {
+func (p *MicrosoftProvider) GetDeviceCode(ctx context.Context, clientID, loginHint string) (*DeviceCodeResponse, error) {
 	scopes := strings.Join(p.Scopes(), " ")
 
 	data := url.Values{}
 	data.Set("client_id", clientID)
 	data.Set("scope", scopes)
+	if loginHint != "" {
+		data.Set("login_hint", loginHint)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.deviceEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
@@ -164,6 +172,7 @@ func (p *MicrosoftProvider) PollToken(ctx context.Context, clientID string, devi
 		ExpiresIn    int    `json:"expires_in"`
 		TokenType    string `json:"token_type"`
 		Scope        string `json:"scope"`
+		IDToken      string `json:"id_token"`
 	}
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return nil, fmt.Errorf("解析 Token 响应失败: %w", err)
@@ -175,6 +184,7 @@ func (p *MicrosoftProvider) PollToken(ctx context.Context, clientID string, devi
 		ExpiresIn:    time.Duration(tokenResp.ExpiresIn) * time.Second,
 		TokenType:    tokenResp.TokenType,
 		Scope:        tokenResp.Scope,
+		IDToken:      tokenResp.IDToken,
 	}, nil
 }
 
@@ -209,7 +219,7 @@ func (p *MicrosoftProvider) RefreshAccessToken(ctx context.Context, clientID str
 		}
 		if err := json.Unmarshal(body, &errResp); err == nil {
 			if errResp.Error == "invalid_grant" {
-				return nil, fmt.Errorf("RefreshToken 已失效，需要用户重新授权")
+				return nil, fmt.Errorf("%w: 微软返回 invalid_grant，需要用户重新授权", ErrRefreshTokenRevoked)
 			}
 			return nil, fmt.Errorf("刷新 Token 错误 [%s]: %s", errResp.Error, errResp.ErrorDescription)
 		}
@@ -238,4 +248,48 @@ func (p *MicrosoftProvider) RefreshAccessToken(ctx context.Context, clientID str
 
 func (p *MicrosoftProvider) BuildXOAUTH2String(email, accessToken string) string {
 	return BuildXOAUTH2String(email, accessToken)
+}
+
+// ExtractEmailFromIDToken 从 JWT 的 id_token 中解析出用户邮箱地址（仅解码 payload，不做签名校验）。
+// 返回优先级：email > preferred_username > upn > unique_name（取第一个非空）。
+// 用于在 OAuth2 授权成功后自动获取邮箱，免去用户预填。
+func ExtractEmailFromIDToken(idToken string) string {
+	if idToken == "" {
+		return ""
+	}
+	parts := strings.Split(idToken, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	payload := parts[1]
+
+	// JWT 使用 base64url 且无填充
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		// 兜底：尝试标准 url-safe（带填充）
+		if raw, err = base64.URLEncoding.DecodeString(payload); err != nil {
+			return ""
+		}
+	}
+
+	var claims struct {
+		Email             string `json:"email"`
+		PreferredUsername string `json:"preferred_username"`
+		UPN               string `json:"upn"`
+		UniqueName        string `json:"unique_name"`
+	}
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		return ""
+	}
+
+	if claims.Email != "" {
+		return claims.Email
+	}
+	if claims.PreferredUsername != "" {
+		return claims.PreferredUsername
+	}
+	if claims.UPN != "" {
+		return claims.UPN
+	}
+	return claims.UniqueName
 }

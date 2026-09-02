@@ -11,6 +11,7 @@ import (
 // Mail 邮件模型 - 存储从 IMAP 同步的邮件数据
 type Mail struct {
 	ID            uint           `json:"id" gorm:"primaryKey"`
+	UserID        uint           `json:"user_id" gorm:"index;not null;default:0;comment:所属用户ID"`
 	AccountID     uint           `json:"account_id" gorm:"index;not null;comment:所属邮箱账号ID"`
 	MessageID     string         `json:"message_id" gorm:"type:varchar(512);index;not null;comment:原始Message-ID(去重用)"`
 	MessageUID    uint32         `json:"message_uid" gorm:"index;comment:IMAP UID(用于增量同步)"`

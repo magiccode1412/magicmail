@@ -4,8 +4,9 @@
 import axios from 'axios'
 
 // 创建 axios 实例
+// 飞牛统一网关等场景通过 Vite base 注入前缀（如 /app/magicmail）
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: import.meta.env.BASE_URL + 'api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
@@ -24,7 +25,9 @@ function navigateToLogin() {
   if (_router && _router.currentRoute.value.path !== '/login') {
     _router.push('/login')
   } else if (window.location.pathname !== '/login') {
-    window.location.href = '/login'
+    // 带前缀部署（如飞牛统一网关 /app/magicmail）下不能直接跳 '/login'，
+    // 否则会跳到 NAS 站点根路径。BASE_URL 在非飞牛构建时为 '/'，行为与原来一致。
+    window.location.href = import.meta.env.BASE_URL + 'login'
   }
 }
 

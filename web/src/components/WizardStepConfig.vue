@@ -18,7 +18,7 @@
     <div v-if="isDomesticProvider" class="config-form simple-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：工作 QQ 邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
         <label class="form-label">邮箱地址 <span class="required">*</span></label>
@@ -44,6 +44,7 @@
       </div>
 
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="$emit('back')">返回</button>
         <button type="button" class="btn btn-primary" @click="handleNext" :disabled="!canProceedSimple">下一步</button>
       </div>
     </div>
@@ -52,11 +53,12 @@
     <div v-else-if="isOAuth2Provider" class="config-form oauth2-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：我的 Outlook 邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
-        <label class="form-label">邮箱地址 <span class="required">*</span></label>
+        <label class="form-label">邮箱地址 <span class="optional">（可选）</span></label>
         <input v-model="localForm.email" type="email" class="input" placeholder="your@email.com" />
+        <p class="form-hint text-muted">完成授权后将自动获取，也可在此填写以预填微软登录页</p>
       </div>
 
       <!-- OAuth2 授权区域 -->
@@ -80,6 +82,7 @@
       </details>
 
       <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="$emit('back')">返回</button>
         <button type="button" class="btn btn-primary" @click="handleNext" :disabled="!canProceedOAuth2">
           下一步
           <ChevronRight :size="16" />
@@ -91,7 +94,7 @@
     <div v-else class="config-form manual-mode">
       <div class="form-group">
         <label class="form-label">显示名称 <span class="required">*</span></label>
-        <input v-model="localForm.name" type="text" class="input" placeholder="如：我的邮箱" />
+        <input v-model="localForm.name" type="text" class="input" :placeholder="namePlaceholder" />
       </div>
       <div class="form-group">
         <label class="form-label">邮箱地址</label>
@@ -166,6 +169,8 @@ const isOAuth2Provider = computed(() => {
 })
 
 const providerName = computed(() => props.selectedProvider?.name || '')
+// 显示名称占位符：根据所选邮箱类型动态生成（如 163 → 工作 163 邮箱）
+const namePlaceholder = computed(() => `如：工作 ${providerName.value}`)
 const domain = computed(() => props.selectedProvider?.domain || '')
 const providerDomains = computed(() => props.selectedProvider?.domains || [])
 const oauthProviderName = computed(() => props.selectedProvider?.oauthProvider || '')
@@ -209,7 +214,7 @@ const canProceedSimple = computed(() =>
   localForm.name && localForm.email && localForm.password
 )
 const canProceedOAuth2 = computed(() =>
-  localForm.name && localForm.email && (localForm.refresh_token || localForm.password)
+  localForm.name && (localForm.refresh_token || localForm.password)
 )
 const canProceedManual = computed(() =>
   localForm.name && localForm.host && localForm.username && localForm.password
@@ -224,6 +229,10 @@ function handleNext() {
 function onAuthorized(tokenData) {
   // 先将当前已填写的本地表单数据同步到父组件 formData，防止被后续 watch 覆盖
   Object.assign(props.formData, localForm)
+  // 授权成功且用户尚未填写邮箱时，自动从授权结果回填邮箱
+  if (!localForm.email && tokenData.email) {
+    localForm.email = tokenData.email
+  }
   emit('oauth2Authorized', tokenData)
 }
 </script>
@@ -266,6 +275,7 @@ function onAuthorized(tokenData) {
   color: var(--text-secondary);
 }
 .required { color: var(--error); }
+.optional { color: var(--text-tertiary); font-weight: var(--font-weight-normal); font-size: var(--font-size-xs); }
 
 .input {
   padding: 10px 14px;
@@ -278,7 +288,7 @@ function onAuthorized(tokenData) {
   transition: border-color 0.2s;
   outline: none;
 }
-.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+.input:focus { border-color: var(--primary-400); box-shadow: 0 0 0 3px var(--mail-unread-bg, var(--primary-100)); }
 .input::placeholder { color: var(--text-tertiary); opacity: 0.7; }
 
 /* ---- 密码字段 ---- */
@@ -328,10 +338,10 @@ function onAuthorized(tokenData) {
   font-size: var(--font-size-xs);
   margin-top: -2px;
 }
-.help-text { color: #B45309; line-height: 1.5; }
+.help-text { color: var(--warning); line-height: 1.5; }
 .text-muted { color: var(--text-tertiary); }
 
-/* ---- 操作按钮 ---- */
+/* ---- 操作按钮（复用全局主题自适应样式 .btn / .btn-primary / .btn-secondary）---- */
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -339,25 +349,6 @@ function onAuthorized(tokenData) {
   padding-top: var(--space-sm);
   margin-top: var(--space-xs);
 }
-
-.btn {
-  padding: 9px 20px;
-  border-radius: var(--radius-md);
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-sm);
-  font-family: inherit;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.btn-primary { background: linear-gradient(135deg, #6366F1, #8B5CF6); color: white; }
-.btn-primary:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25); }
-.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
-.btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 /* ---- 高级选项折叠 ---- */
 .advanced-section {

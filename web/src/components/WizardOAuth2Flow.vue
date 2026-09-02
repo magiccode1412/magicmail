@@ -84,7 +84,8 @@
 <script setup>
 import { ref, computed, onUnmounted, watch } from 'vue'
 import { Lock, Zap, Copy, CheckCircle, AlertCircle, ExternalLink } from 'lucide-vue-next'
-import { requestDeviceCode, pollToken } from '@/api/account'
+import { requestDeviceCode } from '@/api/account'
+import { useSSE } from '@/composables/useSSE'
 import { useToast } from '@/composables/useToast'
 
 const props = defineProps({
@@ -103,6 +104,27 @@ const deviceCodeData = ref(null)
 const errorMessage = ref('')
 let pollTimer = null
 let countdownTimer = null
+
+// SSE：监听 OAuth2 设备码授权结果（替代原先的 HTTP 轮询）
+const sse = useSSE({
+  manualConnect: true,
+  onOAuthAuthorized(data) {
+    status.value = 'success'
+    stopPolling()
+    emit('authorized', {
+      provider: props.providerName,
+      refresh_token: data.refresh_token,
+      expires_in: data.expires_in,
+      token_expires_at: data.token_expires_at,
+      email: data.email,
+    })
+  },
+  onOAuthExpired() {
+    status.value = 'error'
+    errorMessage.value = '授权超时或失败，请重新发起'
+    stopPolling()
+  },
+})
 let countdownSeconds = ref(0)
 const countdownTotal = ref(0)
 
@@ -130,35 +152,11 @@ async function startAuth() {
     status.value = 'pending'
 
     startCountdown()
-    startPolling(res.data.device_code)
+    sse.connect()
   } catch (e) {
     status.value = 'error'
     errorMessage.value = e.message || '无法获取验证码'
   }
-}
-
-function startPolling(deviceCode) {
-  const interval = deviceCodeData.value?.interval || 5
-  pollTimer = setInterval(async () => {
-    try {
-      const res = await pollToken(props.providerName, { device_code: deviceCode, custom_client_id: props.customClientId || undefined })
-      if (res.pending) {
-        // 继续轮询
-        return
-      }
-      // 成功或错误
-      stopPolling()
-      if (res.success && res.data) {
-        status.value = 'success'
-        emit('authorized', res.data)
-      }
-    } catch (e) {
-      if (e.response?.status === 202) return // still pending
-      status.value = 'error'
-      errorMessage.value = e.message || '授权过程中发生错误'
-      stopPolling()
-    }
-  }, interval * 1000)
 }
 
 function startCountdown() {
@@ -166,8 +164,10 @@ function startCountdown() {
     countdownSeconds.value--
     if (countdownSeconds.value <= 0) {
       stopPolling()
-      status.value = 'error'
-      errorMessage.value = '授权超时，请重新发起'
+      if (status.value !== 'success') {
+        status.value = 'error'
+        errorMessage.value = '授权超时，请重新发起'
+      }
     }
   }, 1000)
 }
@@ -175,6 +175,7 @@ function startCountdown() {
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+  if (sse) sse.disconnect()
 }
 
 function cancelAuth() {
@@ -227,7 +228,7 @@ watch(() => props.providerName, () => {
   color: var(--primary-500);
   flex-shrink: 0;
   padding: 8px;
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-50);
   border-radius: var(--radius-md);
 }
 .prompt-text {
@@ -247,8 +248,8 @@ watch(() => props.providerName, () => {
 .btn-oauth2-start {
   width: 100%;
   justify-content: center;
-  background: linear-gradient(135deg, #6366F1, #8B5CF6);
-  color: white;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: var(--text-on-primary);
   border: none;
   padding: 10px var(--space-lg);
   border-radius: var(--radius-md);
@@ -265,7 +266,7 @@ watch(() => props.providerName, () => {
 .btn-oauth2-start:hover {
   opacity: 0.92;
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 4px 16px var(--shadow-glow);
 }
 
 /* ---- 授权面板 ---- */
@@ -273,7 +274,7 @@ watch(() => props.providerName, () => {
   border: 1px solid var(--primary-200);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  background: rgba(99, 102, 241, 0.03);
+  background: var(--primary-50);
   animation: panel-in 0.3s ease;
 }
 @keyframes panel-in {
@@ -395,7 +396,7 @@ watch(() => props.providerName, () => {
   left: 0;
   top: 0;
   height: 100%;
-  background: linear-gradient(90deg, #6366F1, #A78BFA);
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-400));
   border-radius: 3px;
   transition: width 1s linear;
 }
@@ -423,8 +424,8 @@ watch(() => props.providerName, () => {
 
 /* 成功/错误 */
 .flow-success { padding: var(--space-xl) 0; }
-.success-icon { color: #10B981; }
-.flow-success strong { color: #10B981; font-size: var(--font-size-base); }
+.success-icon { color: var(--success); }
+.flow-success strong { color: var(--success); font-size: var(--font-size-base); }
 .flow-success p { color: var(--text-secondary); font-size: var(--font-size-sm); }
 
 .flow-error { padding: var(--space-xl) 0; }

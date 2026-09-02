@@ -125,6 +125,18 @@ export MAGICMAIL_MIN_DISK_FREE=512        # 保留 512MB
 生产环境建议显式设置 `MAGICMAIL_JWT_SECRET` 和 `MAGICMAIL_ENCRYPT_KEY`，避免因数据库丢失导致无法解密已存储的邮箱密码。密钥长度建议 ≥ 32 字符。
 :::
 
+## 日志与诊断
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MAGICMAIL_LOG_LEVEL` | 生产 `info`，开发 `debug` | 日志级别。设为 `debug` 会输出大量 `[DEBUG]` 调试日志（含邮件解析、IMAP FETCH、MIME 解码等细节）；设为其他值（如 `info`）则在生产环境默认关闭 `[DEBUG]` 日志，避免日志膨胀与敏感调用链外泄 |
+| `MAGICMAIL_DIAG` | `false` | 启动诊断脚本是否向 `diag.log` 输出**完整环境变量**。设为 `1` 或 `true` 时才会打印全部环境变量（用于深度排障）；默认仅打印**脱敏后**的环境变量（自动过滤含 `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIAL`/`PRIVATE` 的变量）|
+
+::: warning 安全提示
+- 默认情况下启动诊断日志**不会**输出 `MAGICMAIL_JWT_SECRET`、`MAGICMAIL_ENCRYPT_KEY` 等密钥（已自动脱敏）。只有显式设置 `MAGICMAIL_DIAG=1` 才会打印完整环境变量，请谨慎使用并确保诊断日志不被外传。
+- 生产环境建议保持 `MAGICMAIL_LOG_LEVEL` 为非 `debug`（默认即为关闭），仅在临时排查时开启。
+:::
+
 ## 完整示例
 
 ```bash
@@ -151,6 +163,10 @@ export MAGICMAIL_MAX_CONCURRENT=20
 # 安全密钥（生产环境必设！）
 export MAGICMAIL_JWT_SECRET="your-super-secret-jwt-key-here"
 export MAGICMAIL_ENCRYPT_KEY="your-32-byte-encryption-key-1234567890"
+
+# 日志与诊断（可选，按需开启）
+# export MAGICMAIL_LOG_LEVEL=debug   # 临时排查时开启，日常保持关闭（默认已关闭）
+# export MAGICMAIL_DIAG=1            # 仅需在 diag.log 中查看完整环境变量排障时开启
 ```
 
 ```bash
