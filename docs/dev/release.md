@@ -156,6 +156,25 @@ cnb 打 tag ──► cnb tag_push 流水线 ──► GitHub 收到 tag ──�
 
 如果推了 tag 但 GitHub 长时间没反应，先去 cnb 看 `tag_push` 流水线是否成功；作为兜底，向 `main` 推任意一个提交也会触发全量同步（会带上所有 tag）。
 
+> **cnb 分支配置的覆盖语义（重要）**：一旦为某个分支单独配置了 `push`，`$` 兜底分支下的 `push` 就**不再**对该分支生效。
+> `dev` 已经单独配置了 `push`（同步 + 构建校验），所以任何与 `dev` 推送相关的流水线都必须写在 `dev:` 下，写在 `$:` 下不会执行 —— 曾经因此导致 `dev` 的改动不再同步到 GitHub。
+
+### dev 分支持续构建校验
+
+`dev` 每次 push 会跑 `build-verify` 流水线（`.cnb.yml` 的 `dev.push`），执行 `scripts/verify-build.sh`：
+
+- 前端构建
+- 6 个目标平台交叉编译
+- 飞牛 FPK（x86 / arm64）打包，并校验网关前缀与二进制架构
+
+它不发 Release、不推镜像、不产生任何对外产物，目的只是把「发版时才会做的事」提前做一遍。其中 FPK 的两项校验（`/app/magicmail` 前缀、二进制架构与 `manifest` 声明一致）只有真正打出 FPK 才能验证，靠单元测试和前端构建都拦不住 —— 在合并进 `main` 之前发现，比等到发 rc 标签再发现要早得多。
+
+构建环境由 `.ci/Dockerfile` 预装（Node 22 + pnpm 10 + Go 1.25 + fnpack + file），脚本也可以在本地直接运行：
+
+```bash
+bash scripts/verify-build.sh
+```
+
 ### Release 正文来自 `changelog.md`
 
 正文由 `release.yml` 从 `docs/guide/changelog.md` 中提取 `## [vX.Y.Z]` 到下一个 `## [` 之间的内容。
