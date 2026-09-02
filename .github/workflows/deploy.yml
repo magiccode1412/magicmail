@@ -13,19 +13,28 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-# 权限配置：需要 contents 写入权限，以便把构建产物推送到 gh-pages 分支
+# 使用官方 Pages Action 部署（上传产物方式），不需要 gh-pages 分支
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+# 并发保护：排队中的旧部署会被跳过，但不会中断正在进行的部署
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 # 部署到 GitHub Pages 时的资源基础路径（子路径部署需以 / 开头、不以 / 结尾）
 # 例如仓库名为 magicmail，则访问地址为 https://<username>.github.io/magicmail/
-# 如需根路径部署，设为 '/' 即可
 env:
   VITEPRESS_BASE: /magicmail
 
 jobs:
-  # 构建并部署任务
-  build-and-deploy:
+  # ==========================================================================
+  # Job 1: 构建文档
+  # ==========================================================================
+  build:
+    name: Build Docs
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -57,13 +66,31 @@ jobs:
       - name: 构建项目
         run: pnpm run build
 
-      # 步骤6：将构建产物（docs/.vitepress/dist 目录）推送到 gh-pages 分支
-      # 首次运行会自动创建 gh-pages 分支
-      - name: 部署到 GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      # 步骤6：读取 Pages 配置
+      # enablement: Pages 尚未启用时自动启用并切换为 Actions 部署模式
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .vitepress/dist
-          publish_branch: gh-pages
-          # 提交信息，便于追溯每次部署
-          commit_message: ${{ github.event.head_commit.message }}
+          enablement: true
+
+      # 步骤7：上传构建产物
+      # 注意：路径相对仓库根目录，VitePress 输出在 docs/.vitepress/dist
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  # ==========================================================================
+  # Job 2: 部署到 GitHub Pages
+  # ==========================================================================
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
