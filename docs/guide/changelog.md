@@ -2,6 +2,22 @@
 
 所有重要变更都会记录在此文件中。
 
+## [v1.2.1] - 2026-09-02
+
+### 部署 & CI/CD
+- 修复 Docker 镜像 `latest` 标签从未更新的问题：浮动标签的启用条件误用了在 tag 推送时恒为 false 的 `is_default_branch`
+- 修复 cnb 同步到 GitHub 时不推送标签的问题：`git-sync` 的 `push_tags` 默认为 false，标签全部留在 cnb，导致 GitHub Actions 中 `tags: ['v*']` 的工作流永远不会触发
+- 修复在 cnb 推送 tag 不触发同步的问题：`push` 事件只响应分支推送，已单独配置 `tag_push` 事件
+- 修复 cnb 镜像构建读取不到版本号的问题：字段应为 `latest` 而非 `version`，此前镜像标签被打成 `:null`
+- 修复 `web_trigger_docker_dev` 从未成功执行的问题：其调用的 `scripts/docker.sh` 此前并不存在
+- 发布入口新增校验：`v*` tag 必须打在 `main` 分支上，打在其他分支会直接失败
+- Release 正文改为从 `docs/guide/changelog.md` 提取对应版本条目，修复正文中混入字面量 `format=`、以及内容严重缺失的问题
+- 文档站改用官方 Pages Action 部署，不再依赖 `gh-pages` 分支（原方案因 `publish_dir` 路径错误从未生效过）
+
+### 新增
+- dev 分支 push 时自动执行全量构建校验：6 个平台交叉编译、飞牛双架构 FPK 打包、网关前缀与二进制架构断言
+- 新增发布流程文档，说明分支模型、版本号同步、tag 归属校验、同步链路与验收清单
+
 ## [v1.2.0] - 2026-09-02
 
 ### 安全
