@@ -9,7 +9,8 @@ $:
         - docker
 
   push:
-      - imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
+      - name: sync_to_github
+        imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
         stages:
           - name: sync_to_github
             image: tencentcom/git-sync
@@ -45,13 +46,13 @@ $:
         - docker
       imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
       env:
-        CNB_IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-amd64
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-amd64
       stages:
         - name: docker build
-          script: docker build -t ${CNB_IMAGE_TAG} .
+          script: docker build -t ${IMAGE_TAG} .
         - name: docker push
           script: |
-            docker push ${CNB_IMAGE_TAG}
+            docker push ${IMAGE_TAG}
         - name: resolve
           type: cnb:resolve
           options:
@@ -63,13 +64,13 @@ $:
         - docker
       imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
       env:
-        CNB_IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-arm64
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-arm64
       stages:
         - name: docker build
-          script: docker build -t ${CNB_IMAGE_TAG} .
+          script: docker build -t ${IMAGE_TAG} .
         - name: docker push
           script: |
-            docker push ${CNB_IMAGE_TAG}
+            docker push ${IMAGE_TAG}
         - name: resolve
           type: cnb:resolve
           options:
@@ -79,7 +80,7 @@ $:
         - docker
       imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
       env:
-        CNB_IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest
       stages:
         - name: get_version
           script: |
@@ -104,8 +105,8 @@ $:
         - name: manifest_cnb
           image: cnbcool/manifest
           settings:
-            target: ${CNB_IMAGE_TAG}
-            template: ${CNB_IMAGE_TAG}-OS-ARCH
+            target: ${IMAGE_TAG}
+            template: ${IMAGE_TAG}-OS-ARCH
             platforms:
               - linux/amd64
               - linux/arm64
@@ -113,7 +114,7 @@ $:
           image: cnbcool/manifest
           settings:
             target: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${APP_VERSION}
-            template: ${CNB_IMAGE_TAG}-OS-ARCH
+            template: ${IMAGE_TAG}-OS-ARCH
             platforms:
               - linux/amd64
               - linux/arm64
@@ -127,6 +128,21 @@ $:
             type: docker
 
 dev:
+  # dev 分支每次 push 做一次全量构建校验：不发 Release、不推镜像，
+  # 只验证「发版时要构建的东西现在还构建得出来」。
+  # 重点拦住两类问题：FPK 内前端丢失 /app/magicmail 前缀（装上白屏）、
+  # FPK 内二进制架构与 manifest 声明不一致（装上跑不起来）——
+  # 这两类只有真正打出 FPK 才能发现，单测和前端构建都拦不住。
+  push:
+    - name: build-verify
+      runner:
+        cpus: 8
+      docker:
+        build: .ci/Dockerfile
+      stages:
+        - name: 构建校验
+          script: bash ./scripts/verify-build.sh
+
   web_trigger_docker_dev:
     - services:
         - docker
