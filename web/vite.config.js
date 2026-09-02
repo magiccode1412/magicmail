@@ -45,18 +45,21 @@ export default defineConfig({
         scope: base,
         start_url: base,
         icons: [
+          // ⚠️ 必须拼接 base：飞牛统一网关按 gatewayPrefix 转发请求，
+          // 写成 '/icons/...' 会让浏览器请求 NAS 根路径 → 网关不转发 → 图标 404。
+          // 非飞牛构建时 base='/',拼接结果与原来一致。
           {
-            src: '/icons/icon-192x192.png',
+            src: base + 'icons/icon-192x192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: base + 'icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: base + 'icons/icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable'

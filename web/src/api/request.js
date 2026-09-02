@@ -25,7 +25,9 @@ function navigateToLogin() {
   if (_router && _router.currentRoute.value.path !== '/login') {
     _router.push('/login')
   } else if (window.location.pathname !== '/login') {
-    window.location.href = '/login'
+    // 带前缀部署（如飞牛统一网关 /app/magicmail）下不能直接跳 '/login'，
+    // 否则会跳到 NAS 站点根路径。BASE_URL 在非飞牛构建时为 '/'，行为与原来一致。
+    window.location.href = import.meta.env.BASE_URL + 'login'
   }
 }
 

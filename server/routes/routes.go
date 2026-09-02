@@ -69,38 +69,29 @@ func Register(app *fiber.App, db *gorm.DB) {
 	// 认证中间件实例
 	authMiddleware := middleware.AuthRequired(authService)
 
-	// 兼容两种部署形态：
-	//   1. 根路径（Docker / 旧部署，MAGICMAIL_BASE_PATH 为空）
-	//   2. 带基础路径前缀（飞牛统一网关，MAGICMAIL_BASE_PATH=/app/magicmail）
-	// 无论前端网关是「透传前缀」还是「剥离前缀」，后端都注册两套路由，全部兼容。
-	prefixes := []string{""}
-	if bp := strings.Trim(cfg.Server.BasePath, "/"); bp != "" {
-		prefixes = append(prefixes, "/"+bp)
-	}
-
-	for _, prefix := range prefixes {
-		registerAppRoutes(app, prefix, routeDeps{
-			accountHandler:   accountHandler,
-			oauthHandler:     oauthHandler,
-			mailHandler:      mailHandler,
-			attachmentHandler: attachmentHandler,
-			webhookHandler:   webhookHandler,
-			authHandler:      authHandler,
-			draftHandler:     draftHandler,
-			userHandler:      userHandler,
-			settingsHandler:  settingsHandler,
-			pushHandler:      pushHandler,
-			authMiddleware:   authMiddleware,
-		})
-	}
+	// 单套根路由：网关透传的 /app/magicmail 前缀已由 main.go 中的
+	// middleware.BasePath 在匹配前剥离，这里只需注册根路径。
+	registerAppRoutes(app, routeDeps{
+		accountHandler:    accountHandler,
+		oauthHandler:      oauthHandler,
+		mailHandler:       mailHandler,
+		attachmentHandler: attachmentHandler,
+		webhookHandler:    webhookHandler,
+		authHandler:       authHandler,
+		draftHandler:      draftHandler,
+		userHandler:       userHandler,
+		settingsHandler:   settingsHandler,
+		pushHandler:       pushHandler,
+		authMiddleware:    authMiddleware,
+	})
 
 	// 前端静态资源与 SPA fallback
 	if isEmbedded() {
-		// 生产（嵌入式）：注册一次，内部兼容透传/剥离两种前缀
-		serveFrontendOnce(app, &cfg.Server)
+		// 生产（嵌入式）：从 embed.FS 提供
+		serveFrontendOnce(app)
 	} else {
 		// 开发模式：从磁盘 ./dist 读取静态资源
-		serveFrontend(app, &cfg.Server)
+		serveFrontend(app)
 	}
 }
 
@@ -119,9 +110,9 @@ type routeDeps struct {
 	authMiddleware    fiber.Handler
 }
 
-// registerAppRoutes 在指定前缀下注册全部 API、健康检查、静态文件与 SPA fallback
-func registerAppRoutes(app *fiber.App, prefix string, d routeDeps) {
-	api := app.Group(prefix + "/api/v1")
+// registerAppRoutes 注册全部 API、健康检查、静态文件与 SPA fallback（根路径，只注册一次）
+func registerAppRoutes(app *fiber.App, d routeDeps) {
+	api := app.Group("/api/v1")
 
 	// ============================================================
 	//  公开接口：无需认证
@@ -250,7 +241,7 @@ func registerAppRoutes(app *fiber.App, prefix string, d routeDeps) {
 	adminSettings.Put("/open-registration", d.settingsHandler.SetOpenRegistration)
 
 	// 健康检查端点
-	app.Get(prefix+"/health", func(c *fiber.Ctx) error {
+	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "ok",
 			"service": "magicmail",
@@ -260,9 +251,9 @@ func registerAppRoutes(app *fiber.App, prefix string, d routeDeps) {
 }
 
 // serveFrontendOnce 注册一次全局静态文件服务与 SPA fallback。
-// 飞牛统一网关可能「透传前缀」(/app/magicmail/assets/...) 或「剥离前缀」(/assets/...)，
-// 该中间件内部同时兼容两种形态，确保无论哪种都能正确返回嵌入的前端资源。
-func serveFrontendOnce(app *fiber.App, cfg *config.ServerConfig) {
+// 请求路径已由 middleware.BasePath 剥离网关注入的前缀，
+// 因此这里只需按根路径（如 /assets/app.js、/sw.js）直接读 embed.FS。
+func serveFrontendOnce(app *fiber.App) {
 	if !isEmbedded() {
 		// 开发/磁盘模式由调用方另行处理，这里仅在嵌入式时注册内存服务
 		return
@@ -273,10 +264,7 @@ func serveFrontendOnce(app *fiber.App, cfg *config.ServerConfig) {
 		return
 	}
 
-	// 飞牛基础路径（已去掉首尾斜杠），可能为空
-	bp := strings.Trim(cfg.BasePath, "/")
-
-	// --- 静态资源中间件（注册一次，兼容两种前缀） ---
+	// --- 静态资源中间件 ---
 	app.Use(func(c *fiber.Ctx) error {
 		if c.Method() != "GET" && c.Method() != "HEAD" {
 			return c.Next()
@@ -288,34 +276,22 @@ func serveFrontendOnce(app *fiber.App, cfg *config.ServerConfig) {
 			return c.Next()
 		}
 
-		// 可能的内部相对路径候选：原始路径 + （若带前缀）剥离前缀后的路径
-		candidates := []string{p}
-		if bp != "" {
-			prefixed := "/" + bp
-			if rel := strings.TrimPrefix(p, prefixed); rel != p {
-				candidates = append(candidates, rel) // 透传前缀情况
-			}
+		clean := path.Clean(strings.TrimPrefix(p, "/"))
+		if !fs.ValidPath(clean) || strings.HasPrefix(clean, "..") {
+			return c.Next()
 		}
-
-		for _, cand := range candidates {
-			requested := strings.TrimPrefix(cand, "/")
-			clean := path.Clean(requested)
-			if !fs.ValidPath(clean) || strings.HasPrefix(clean, "..") {
-				continue
-			}
-			if clean == "" || clean == "." {
-				continue // 根路径交给 SPA fallback
-			}
-			if data, err := fs.ReadFile(distSub, clean); err == nil {
-				c.Type(path.Ext(clean))
-				return c.Send(data)
-			}
+		if clean == "" || clean == "." {
+			return c.Next() // 根路径交给 SPA fallback
 		}
-		return c.Next() // 未命中静态资源，交给 SPA fallback
+		data, err := fs.ReadFile(distSub, clean)
+		if err != nil {
+			return c.Next() // 未命中静态资源，交给 SPA fallback
+		}
+		c.Type(path.Ext(clean))
+		return c.Send(data)
 	})
 
 	// --- SPA fallback：未命中静态资源 / API 时返回 index.html ---
-	// 兼容网关「透传前缀」(/app/magicmail/xxx) 与「剥离前缀」(/xxx) 两种形态。
 	app.Use(func(c *fiber.Ctx) error {
 		if c.Method() != "GET" && c.Method() != "HEAD" {
 			return c.Status(404).JSON(fiber.Map{"error": "Not Found"})
@@ -466,17 +442,11 @@ func isEmbedded() bool {
 
 // serveFrontend 仅用于开发模式：从磁盘 ./dist 读取静态资源（配合 Vite dev server）。
 // 生产模式的静态服务由 serveFrontendOnce 基于 embed.FS 统一提供。
-func serveFrontend(app *fiber.App, cfg *config.ServerConfig) {
+func serveFrontend(app *fiber.App) {
 	if isEmbedded() || !isDevMode() {
 		return
 	}
-	bp := strings.Trim(cfg.BasePath, "/")
-	if bp == "" {
-		app.Static("/", "./dist")
-	} else {
-		// 开发环境带前缀时同样从根目录读取静态资源
-		app.Group("/"+bp).Static("/", "./dist")
-	}
+	app.Static("/", "./dist")
 }
 
 // serveIndexHTML 返回 SPA 入口文件（embed.FS 或磁盘 ./dist）。

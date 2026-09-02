@@ -12,6 +12,7 @@ import (
 	"magicmail/crypto"
 	"magicmail/database"
 	"magicmail/imap"
+	"magicmail/middleware"
 	"magicmail/oauth2"
 	"magicmail/routes"
 	"magicmail/sse"
@@ -95,10 +96,18 @@ func main() {
 
 	// 全局中间件
 	app.Use(recover.New())
+
+	// ⭐ 统一网关前缀剥离：必须早于任何路由注册（含 logger / CORS / routes.Register）。
+	// 飞牛统一网关不会剥离 gatewayPrefix（/app/magicmail），而是整段透传；
+	// 该中间件在路由匹配前把前缀去掉，使后端只需维护一套根路由。
+	// 非飞牛部署（MAGICMAIL_BASE_PATH 为空）时本中间件完全透传，行为不变。
+	app.Use(middleware.BasePath(cfg.Server.BasePath))
+
 	// Logger 中间件：排除 SSE 流端点（避免干扰长连接）
 	// 注意：SSE 端点 /api/v1/mails/stream 需要保持长连接，logger 的响应拦截可能影响它
 	app.Use(logger.New(logger.Config{
 		Next: func(c *fiber.Ctx) bool {
+			// 此时 c.Path() 已是剥离前缀后的内部路径
 			return c.Path() == "/api/v1/mails/stream"
 		},
 		// 访问日志与业务日志走同一输出目标（开发=终端，生产=日志文件）
@@ -138,8 +147,11 @@ func buildListener(listen string) (net.Listener, error) {
 		if err != nil {
 			return nil, fmt.Errorf("创建 unix socket %s 失败: %w", sockPath, err)
 		}
-		// 确保 socket 文件可被网关进程读取
-		_ = os.Chmod(sockPath, 0666)
+		// socket 权限 0660：Unix Socket 是飞牛形态的唯一入口，
+		// 0666 会让 NAS 上任意本地进程都能连上它并伪造 X-Trim-Userid 免密登录，
+		// 因此收紧为「属主 + 属组」可读写（网关进程需与应用同组或具备 root 权限）。
+		// ⚠️ 若真机验证发现网关连不上（表现为应用 502 / 白屏），回退为 0666 并记录原因。
+		_ = os.Chmod(sockPath, 0660)
 		log.Printf("🚀 Magicmail 服务启动于 Unix Socket: %s", sockPath)
 		return ln, nil
 	case strings.HasPrefix(listen, "tcp://"):

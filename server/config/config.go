@@ -23,9 +23,10 @@ type ServerConfig struct {
 	Port       int    // 监听端口，默认 8080（仅 TCP 模式使用）
 	Host       string // 监听地址，默认 0.0.0.0（仅 TCP 模式使用）
 	Listen     string // 完整监听地址：空或 "tcp://HOST:PORT"（默认 TCP）；"unix:///path/app.sock" 走 Unix Socket（飞牛统一网关）
-	TCPEnabled bool   // 是否在主监听之外同时启用 TCP 监听（飞牛向导 both 模式为 true）
-	TCPAddr    string // 并行 TCP 监听地址，如 "0.0.0.0:23232"；为空时用 Host:Port
-	BasePath   string // 应用部署的基础路径前缀（如飞牛统一网关的 /app/magicmail）。为空表示部署在根路径。
+	TCPEnabled bool   // 是否在主监听之外同时启用 TCP 监听（⚠️ 飞牛形态不再使用，仅供自建部署）
+	TCPAddr    string // 并行 TCP 监听地址，如 "0.0.0.0:23232"；为空时用 Host:Port（⚠️ 同上）
+	BasePath   string // 统一网关透传的公开前缀（如 /app/magicmail）。后端只注册根路由，
+	// 由 middleware.BasePath 在路由匹配前剥离该前缀。为空表示部署在根路径。
 }
 
 // Addr 返回 TCP 监听地址（兼容旧逻辑/Docker 部署）
@@ -177,15 +178,15 @@ func Load() *Config {
 		listen = "tcp://" + getEnv("MAGICMAIL_HOST", "0.0.0.0") + ":" + strconv.Itoa(port)
 	}
 
-	// 基础路径前缀：飞牛统一网关下通常为 /app/magicmail（与前端 BASE_URL 对应）。
-	// 留空表示部署在根路径（Docker/旧部署）。无论网关是否剥离该前缀，后端都兼容：
-	// 若网关透传前缀，下面 Register 中的重写中间件会将其剥离为根路径路由。
+	// 基础路径前缀：飞牛统一网关下为 /app/magicmail（与 manifest.gatewayPrefix、前端 BASE_URL 对应）。
+	// 留空表示部署在根路径（Docker / 旧部署）。
+	// 后端始终只注册一套根路由，该前缀由 middleware.BasePath 在路由匹配前剥离。
 	basePath := getEnv("MAGICMAIL_BASE_PATH", "")
 
-	// 并行 TCP 监听：飞牛向导 "both" 模式下由 cmd/main 注入
-	//   - MAGICMAIL_TCP_ENABLED=1 → 在主监听（Unix 或 TCP）之外再开一个 TCP 端口
-	//   - MAGICMAIL_TCP_ADDR     → 显式地址，如 0.0.0.0:23232；为空则用 Host:Port
-	// 不设 MAGICMAIL_TCP_ENABLED（Docker/仅网关）则纯主监听，向后兼容。
+	// 并行 TCP 监听：仅供自建部署（如 socket + 本地 TCP）。
+	// ⚠️ 飞牛统一网关形态不再使用：只监听 Unix Socket，不提供 TCP 端口
+	//（网关已完成 NAS 级认证，额外端口等于开放一个无保护的登录入口）。
+	// 不设置（Docker / 飞牛）则纯主监听，向后兼容。
 	tcpEnabled := getEnvBool("MAGICMAIL_TCP_ENABLED", false)
 	tcpAddr := getEnv("MAGICMAIL_TCP_ADDR", "")
 
