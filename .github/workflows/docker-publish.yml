@@ -2,6 +2,9 @@
 # Magicmail Docker 镜像 CI/CD
 # 多架构构建 (linux/amd64 + linux/arm64 + linux/arm/v7) 并同步推送至 Docker Hub + GitHub Container Registry
 # 触发条件: 推送 tag (v*) 或手动触发
+#
+# 分支约定: 与 release.yml 一致，所有 v* tag（含 rc）都必须打在 main 上，
+#           否则直接失败，避免在 dev 上误打 tag 时把镜像推到公共仓库。
 # ============================================================================
 
 name: Docker Image CI
@@ -47,6 +50,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0    # 获取完整历史，包含 tags
+
+      # ─── 1b. 校验 tag 归属（尽早失败，别浪费多架构构建时间） ───
+      - name: 校验 tag 位置
+        if: github.event_name == 'push'
+        run: |
+          # tag 推送时 checkout 只拉了这一个 ref，main 分支的引用需要手动补
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::tag ${GITHUB_REF_NAME} 指向的提交 $(git rev-parse --short HEAD) 不在 main 分支上，拒绝构建镜像"
+            exit 1
+          fi
+          echo "OK: ${GITHUB_REF_NAME} @ $(git rev-parse --short HEAD) 位于 main"
 
       # ─── 2. 配置 QEMU (支持多架构) ────────────────
       - name: Set up QEMU

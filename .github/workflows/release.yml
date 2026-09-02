@@ -1,8 +1,12 @@
 # ============================================================================
 # Magicmail CI/CD - 多架构构建 & 发布到 GitHub Release
-# 触发条件：推送 v* 开头的 tag（如 v1.0.0）
+# 触发条件：推送 v* 开头的 tag（如 v1.0.0 / v1.2.0-rc.1）
 # 构建产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64
 #           + FPK 包（飞牛 fnOS：x86 与 ARM64 各一个）
+#
+# 分支约定：main 承担 release branch 的角色（代码冻结窗口），dev 为日常开发分支。
+#   预发布（v1.2.0-rc.N）与正式版（v1.2.0）的 tag 都必须打在 main 上，
+#   由 guard job 用 git merge-base 强制校验，打在其他分支上会直接失败。
 # ============================================================================
 
 name: Build & Release
@@ -11,27 +15,85 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:  # 支持手动触发（仅允许在 main 分支上补发）
     inputs:
       version:
-        description: '版本号 (如 v1.0.0, 留空则使用当前最新 tag)'
-        required: false
+        description: '版本号 (如 v1.2.0 或 v1.2.0-rc.2)，必填'
+        required: true
         type: string
 
 permissions:
   contents: write
 
-env:
-  # 从 tag 提取版本号（如 v1.0.0 → 1.0.0），手动触发时使用输入值或最新 tag
-  VERSION: ${{ github.event.inputs.version || github.ref_name }}
-
 jobs:
+  # ==========================================================================
+  # Job 0: 发布入口校验（guard）
+  #   - 版本号必须符合 vX.Y.Z（允许 -rc.N 等预发布后缀）
+  #   - tag 指向的提交必须在 main 分支上（main 承担 release branch 角色）
+  #   - 手动触发必须显式填写版本号，且只能在 main 分支执行
+  # ==========================================================================
+  guard:
+    name: Verify Release Entry
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0    # 需要完整历史才能做 merge-base 判断
+
+      # tag 推送时 checkout 只拉了这一个 ref，main 分支的引用需要手动补
+      - name: 拉取 main 分支引用
+        run: git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+
+      - name: 校验版本号与分支归属
+        id: check
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ -z "${INPUT_VERSION}" ]; then
+              echo "::error::手动触发必须填写版本号（如 v1.2.0）"
+              exit 1
+            fi
+            if [ "${GITHUB_REF_NAME}" != "main" ]; then
+              echo "::error::手动触发只能在 main 分支执行，当前分支: ${GITHUB_REF_NAME}"
+              exit 1
+            fi
+            VERSION="${INPUT_VERSION}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+
+          # vX.Y.Z 或 vX.Y.Z-<预发布标识>
+          if ! printf '%s' "${VERSION}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::版本号 ${VERSION} 不符合 vX.Y.Z 规范（预发布可用 v1.2.0-rc.1）"
+            exit 1
+          fi
+
+          # 预发布与正式版都要求在 main 上：rc 必须是功能冻结的候选，不能打在 dev 上
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "手动补发: 跳过提交归属校验（按 main 分支当前 HEAD 构建）"
+          elif ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::${VERSION} 指向的提交 $(git rev-parse --short HEAD) 不在 main 分支上，拒绝发布"
+            exit 1
+          else
+            echo "OK: ${VERSION} @ $(git rev-parse --short HEAD) 位于 main"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
   # ==========================================================================
   # Job 1: 构建前端（只需执行一次，所有平台共用）
   # ==========================================================================
   build-frontend:
     name: Build Frontend
+    needs: guard
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -67,6 +129,8 @@ jobs:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: build-frontend
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -133,6 +197,9 @@ jobs:
   # ==========================================================================
   build-fpk:
     name: Build FPK (${{ matrix.arch }})
+    needs: guard
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     # 注意：不能复用 build-binary 的 linux/amd64 二进制！
     # 那份二进制嵌入的前端 base 为 '/'，在统一网关 /app/magicmail 前缀下会 404 白屏。
     # 飞牛形态必须单独以 BASE_URL=/app/magicmail 构建前端并重新编译二进制。
@@ -267,10 +334,14 @@ jobs:
   # ==========================================================================
   release:
     name: Create GitHub Release
-    needs: [build-binary, build-fpk]
+    needs: [guard, build-binary, build-fpk]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0    # changelog 回退分支需要读 tag 历史
 
       # 下载全部编译产物
       - uses: actions/download-artifact@v5
@@ -290,24 +361,56 @@ jobs:
       - name: List artifacts
         run: find all-artifacts -type f | sort
 
-      # 生成 CHANGELOG（取最近的 git log）
+      # 生成 Release 正文：优先取 docs/guide/changelog.md 中对应版本的条目。
+      # 不直接用 git log 的原因：main 只在发版时接收 dev 的合并，历史很短，
+      # 自动生成只能覆盖到 merge commit，内容严重缺失。
       - name: Generate changelog
         id: changelog
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            BODY=$(git log --pretty=format:"- %s (%h)" ${PREV_TAG}..HEAD)
-          else
-            BODY=$(git log --pretty=format="- %s (%h)" -20)
+          BASE="${VERSION%%-*}"          # v1.2.0-rc.1 → v1.2.0
+          NOTES=""
+          if [ -f docs/guide/changelog.md ]; then
+            NOTES="$(awk -v base="${BASE}" '
+              BEGIN { want = "## [" base "]" }
+              !found && index($0, want) == 1 {
+                rest = substr($0, length(want) + 1)
+                if (rest == "" || rest ~ /^[ -]/) { found = 1 }
+                next
+              }
+              found && /^## \[/ { exit }
+              found { lines[++n] = $0 }
+              END {
+                while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+                for (i = 1; i <= n; i++) print lines[i]
+              }
+            ' docs/guide/changelog.md)"
           fi
+          # changelog.md 里没有对应条目时回退到 git log。
+          # 不用 --pretty=format:"..." 内联写法，那会把 format: 原样输出进正文。
+          if [ -z "${NOTES}" ]; then
+            echo "::warning::docs/guide/changelog.md 中未找到 ${BASE} 条目，回退到 git log"
+            PREV_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')"
+            if [ -n "${PREV_TAG}" ]; then
+              NOTES="$(git log --no-merges --pretty='%h%x09%s' "${PREV_TAG}..HEAD" \
+                       | awk -F'\t' '{ printf "- %s (%s)\n", $2, $1 }')"
+            else
+              NOTES="$(git log --no-merges --pretty='%h%x09%s' \
+                       | awk -F'\t' '{ printf "- %s (%s)\n", $2, $1 }')"
+            fi
+          fi
+          if [ -z "${NOTES}" ]; then
+            NOTES="- 本次无详细变更记录"
+          fi
+          # 分隔符带 run id，避免正文里出现 EOF 破坏 heredoc
+          DELIM="__REL_BODY_${GITHUB_RUN_ID}__"
           # 写入 GITHUB_OUTPUT 供后续步骤使用
           {
-            echo "changelog<<EOF"
-            echo "## 📦 Magicmail $VERSION"
+            echo "changelog<<${DELIM}"
+            echo "## 📦 Magicmail ${VERSION}"
             echo ""
             echo "### 变更内容"
             echo ""
-            echo "$BODY"
+            printf '%s\n' "${NOTES}"
             echo ""
             echo "### 下载"
             echo ""
@@ -328,17 +431,18 @@ jobs:
             echo "| 飞牛 fnOS (ARM64) | \`magicmail-${VERSION}-arm64.fpk\` | 一键安装到飞牛系统 |"
             echo ""
             echo "> 解压后直接运行，无需额外依赖。默认监听 \`http://localhost:8080\`"
-            echo "EOF"
+            echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       # 创建 Release 并上传所有资产
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}
-          name: "Magicmail ${{ env.VERSION }}"
+          tag_name: ${{ needs.guard.outputs.version }}
+          name: "Magicmail ${{ needs.guard.outputs.version }}"
           body: ${{ steps.changelog.outputs.changelog }}
           draft: false
-          prerelease: ${{ contains(env.VERSION, '-') }}
+          # 版本号带 - 后缀（v1.2.0-rc.1）就标记为预发布，不进 Latest
+          prerelease: ${{ contains(needs.guard.outputs.version, '-') }}
           files: |
             all-artifacts/magicmail-linux-amd64/magicmail
             all-artifacts/magicmail-linux-arm/magicmail-arm
