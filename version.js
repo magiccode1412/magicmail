@@ -30,7 +30,7 @@ const CHANGELOG_PATH = join(ROOT, 'docs', 'guide', 'changelog.md')
 const PROJECT_CONFIG = {
   githubUrl: 'https://github.com/magiccode1412/magicmail',
   homepageUrl: 'https://160621.xyz/magicmail',
-  versionApiUrl: 'https://api.160621.xyz/v1/version/magicmail',
+  versionApiUrl: 'https://api.160621.xyz/v1/magicmail/version',
 }
 
 // ============ 工具函数 ============
