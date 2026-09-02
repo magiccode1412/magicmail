@@ -23,6 +23,21 @@ $:
               # 会导致 GitHub Actions 里 tags: ['v*'] 的工作流永远不会触发。
               push_tags: true
 
+  # push 事件只在分支推送时触发，打 tag 不会触发，
+  # 因此单独配置 tag_push，否则推到 cnb 的 tag 要等下一次分支推送才会同步过去。
+  tag_push:
+      - imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
+        stages:
+          - name: sync_tag_to_github
+            image: tencentcom/git-sync
+            settings:
+              target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
+              auth_type: https
+              username: "${GITHUB_USERNAME}"
+              password: "${GITHUB_ACCESS_TOKEN}"
+              force: true
+              push_tags: true
+
   web_trigger_docker_cnb:
     - runner:
         tags: cnb:arch:amd64
