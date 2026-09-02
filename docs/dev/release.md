@@ -249,3 +249,48 @@ GitHub Pages 走官方 Pages Action（`configure-pages` → `upload-pages-artifa
 
 `deploy.yml` 只在 `main` 分支触发，在 `dev` 上改文档不会发布，需先合并到 `main`。
 也可以手动触发：Actions → Deploy Docs to GitHub Pages → Run workflow。
+
+### 文档渠道：正式版 / 开发版
+
+EdgeOne 按推送分支分别构建，`main` 出正式版、`dev` 出预览版，两边域名不同。
+为了让两套文档一眼可分，构建时会判定**渠道**（`stable` / `dev`），`dev` 渠道额外带上：
+
+| 表现 | `dev` | `stable` |
+|------|-------|----------|
+| 站点标题 | Magicmail 开发版 | Magicmail |
+| 页面标题后缀 | `（开发版）` | 无 |
+| 顶部横幅 | 显示（可关闭，按版本记忆） | 无 |
+| 「更多」菜单 | 首项为「查看正式版文档 →」 | 无 |
+| `robots` meta | `noindex,nofollow` | 无 |
+
+> `noindex` 是必须的：预览站对外可访问，否则未发布的 changelog 会先被搜索引擎收录。
+
+判定逻辑在 `docs/.vitepress/channel.ts`，优先级从高到低：
+
+1. `DOCS_CHANNEL` 环境变量显式指定（`dev` / `stable`）
+2. CI 分支变量（`GITHUB_REF_NAME` / `CNB_BRANCH` / 各 Pages 平台的分支变量）
+3. `.git/HEAD` 当前分支名
+4. 兜底推断：`docs/guide/changelog.md` 顶格版本领先 `version.json` 的 `latest` → `dev`
+5. 都拿不到 → `stable`（保守默认，正式站不会误挂「开发版」标识）
+
+构建日志会打印判定结果，排查时看这两行：
+
+```
+[DOCS_CHANNEL] dev (source: CNB_BRANCH=dev)
+[DOCS_STABLE] version=v1.2.0 url=https://160621.xyz/magicmail
+```
+
+**EdgeOne 侧配置**：在预览环境的构建变量里加 `DOCS_CHANNEL=dev` 即可显式指定；
+不加也能靠第 3、4 级推断出来，加了只是更明确。正式环境同理设 `DOCS_CHANNEL=stable`。
+GitHub Pages 已在 `deploy.yml` 的 `env` 中固定为 `stable`（该工作流只在 `main` 触发）。
+
+另外可用 `DOCS_STABLE_URL` 覆盖横幅指向的正式版文档地址（默认 `https://160621.xyz/magicmail`）。
+
+**本地预览**两种渠道：
+
+```bash
+cd docs
+
+pnpm dev                      # 按当前分支判定（在 dev 分支上就是开发版）
+DOCS_CHANNEL=stable pnpm dev  # 强制按正式版预览
+```

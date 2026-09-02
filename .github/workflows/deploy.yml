@@ -26,8 +26,12 @@ concurrency:
 
 # 部署到 GitHub Pages 时的资源基础路径（子路径部署需以 / 开头、不以 / 结尾）
 # 例如仓库名为 magicmail，则访问地址为 https://<username>.github.io/magicmail/
+#
+# DOCS_CHANNEL 固定为 stable：本工作流只在 main 分支触发，产出的是正式版文档。
+# 开发版文档由 EdgeOne 关联 dev 分支自动构建，渠道判定见 docs/.vitepress/channel.ts。
 env:
   VITEPRESS_BASE: /magicmail
+  DOCS_CHANNEL: stable
 
 jobs:
   # ==========================================================================
