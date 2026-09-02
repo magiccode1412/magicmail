@@ -19,6 +19,9 @@ $:
               username: "${GITHUB_USERNAME}"
               password: "${GITHUB_ACCESS_TOKEN}"
               force: true
+              # push_tags 默认 false，只同步分支不同步标签，
+              # 会导致 GitHub Actions 里 tags: ['v*'] 的工作流永远不会触发。
+              push_tags: true
 
   web_trigger_docker_cnb:
     - runner:
