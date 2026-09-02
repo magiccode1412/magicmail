@@ -25,7 +25,7 @@ console.log(`[base] ${base}`)
 const { channel, source } = resolveChannel()
 const isDevChannel = channel === 'dev'
 const stableVersion = readStableVersion()
-const stableUrl = (process.env.DOCS_STABLE_URL || 'https://160621.xyz/magicmail').replace(/\/+$/, '')
+const stableUrl = (process.env.DOCS_STABLE_URL || 'https://magicmail.160621.xyz/').replace(/\/+$/, '')
 console.log(`[DOCS_CHANNEL] ${channel} (source: ${source})`)
 console.log(`[DOCS_STABLE] version=${stableVersion || 'unknown'} url=${stableUrl}`)
 
