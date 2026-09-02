@@ -1,0 +1,221 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "branch": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reg": {
+            "type": "string",
+            "description": "分支匹配规则，使用正则表达式"
+          },
+          "buttons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/WebTriggerButton"
+            },
+            "description": "按钮配置"
+          }
+        },
+        "required": ["buttons"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "WebTriggerButton": {
+      "type": "object",
+      "description": "自定义按钮配置，用于触发特定事件",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "按钮名"
+        },
+        "description": {
+          "type": "string",
+          "description": "按钮描述"
+        },
+        "event": {
+          "type": "string",
+          "description": "web_trigger 事件名"
+        },
+        "isDefault": {
+          "type": "boolean",
+          "description": "是否是默认按钮"
+        },
+        "env": {
+          "type": "object",
+          "description": "触发流水线时传入的环境变量",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": ["string", "number", "boolean"],
+                "description": "直接是基础类型的环境变量值（对应 ValueType）"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "环境变量显示名称（可选）"
+                  },
+                  "value": {
+                    "type": ["string", "number", "boolean"],
+                    "description": "环境变量的实际值"
+                  }
+                },
+                "required": ["value"],
+                "additionalProperties": false,
+                "description": "EnvType 对象，包含可选的 name 和必填的 value"
+              }
+            ]
+          }
+        },
+        "inputs": {
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "键值对形式，key 为环境变量名",
+              "additionalProperties": {
+                "$ref": "#/definitions/WebTriggerInput"
+              }
+            },
+            {
+              "type": "array",
+              "description": "将环境变量进行分组显示的形式",
+              "items": {
+                "$ref": "#/definitions/WebTirggerInputGroup"
+              }
+            }
+          ],
+          "description": "触发流水线���传入的环境变量（手动输入的，可覆盖 env）"
+        },
+        "permissions": {
+          "$ref": "#/definitions/PermissionType",
+          "description": "权限控制，哪些人有权限点击按钮"
+        },
+        "openWorkspace": {
+          "type": "boolean",
+          "description": "是否云原生开发模式，如果是，则触发构建后，会直接进入云原生开发启动的 loading 页"
+        },
+        "image": {
+          "type": "string",
+          "description": "自定义按钮图标。只能用仓库中当前分支的图片，填写相对仓库根目录的路径，如 .cnb/button.png"
+        },
+        "groupName": {
+          "type": "string",
+          "description": "分组名，相同 groupName 的按钮会归为一组并用分割线隔开"
+        }
+      },
+      "required": ["name", "description", "event"],
+      "additionalProperties": false
+    },
+    "WebTriggerInput": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "环境变量名称，非传给流水线的 key 值"
+        },
+        "description": {
+          "type": "string",
+          "description": "描述信息"
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "输入框内提示信息"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "是否必填"
+        },
+        "multiple": {
+          "type": "boolean",
+          "description": "是否支持多选，仅支持 select 类型"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["select", "input", "textarea", "switch", "radio"],
+          "description": "输入框类型，默认为 input"
+        },
+        "default": {
+          "type": "string",
+          "description": "默认值"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WebTriggerOption"
+          },
+          "description": "type 为 select、switch 类型时，可选项"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "WebTriggerOption": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "选项名"
+        },
+        "value": {
+          "type": "string",
+          "description": "select/switch 选项值"
+        },
+        "description": {
+          "type": "string",
+          "description": "描述信息"
+        }
+      },
+      "required": ["name", "value"],
+      "additionalProperties": false
+    },
+    "WebTirggerInputGroup": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "分组名"
+        },
+        "collapsed": {
+          "type": "boolean",
+          "description": "是否默认折叠该分组，默认为 false 不折叠"
+        },
+        "inputs": {
+          "type": "object",
+          "description": "分组下的输入项",
+          "additionalProperties": {
+            "$ref": "#/definitions/WebTriggerInput"
+          }
+        }
+      },
+      "required": ["name", "inputs"],
+      "additionalProperties": false
+    },
+    "PermissionType": {
+      "type": "object",
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "有权限点按钮的用户名"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "有权限点按钮的角色"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
