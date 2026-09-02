@@ -1,7 +1,8 @@
 # ============================================================================
 # Magicmail CI/CD - 多架构构建 & 发布到 GitHub Release
 # 触发条件：推送 v* 开头的 tag（如 v1.0.0）
-# 构建产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64 + FPK 包
+# 构建产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64
+#           + FPK 包（飞牛 fnOS：x86 与 ARM64 各一个）
 # ============================================================================
 
 name: Build & Release
@@ -95,7 +96,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'   # 与 server/go.mod 的 go 1.25.0 保持一致
           cache-dependency-path: server/go.sum
 
       # 下载前端构建产物
@@ -128,26 +129,106 @@ jobs:
           retention-days: 1
 
   # ==========================================================================
-  # Job 3: 构建 FPK 包（飞牛 fnOS 应用包）
+  # Job 3: 构建 FPK 包（飞牛 fnOS 应用包，x86 + ARM64 双架构）
   # ==========================================================================
   build-fpk:
-    name: Build FPK Package
-    needs: [build-frontend, build-binary]
+    name: Build FPK (${{ matrix.arch }})
+    # 注意：不能复用 build-binary 的 linux/amd64 二进制！
+    # 那份二进制嵌入的前端 base 为 '/'，在统一网关 /app/magicmail 前缀下会 404 白屏。
+    # 飞牛形态必须单独以 BASE_URL=/app/magicmail 构建前端并重新编译二进制。
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # fnOS manifest 的 platform 合法取值为 x86 / arm / all；
+          # ARM64 设备属于 arm 平台，因此 arm64 包声明 platform = arm。
+          - arch: x86
+            goarch: amd64
+            platform: x86
+          - arch: arm64
+            goarch: arm64
+            platform: arm
     steps:
       - uses: actions/checkout@v5
 
-      # 下载 linux/amd64 构建产物
-      - uses: actions/download-artifact@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
-          name: magicmail-linux-amd64
-          path: bin/
+          version: '10'
+          package_json_file: web/package.json
 
-      - name: Prepare FPK directory
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: server/go.sum
+
+      - name: Build frontend with gateway base
+        working-directory: web
+        env:
+          BASE_URL: /app/magicmail
         run: |
-          mkdir -p fnapp/app/server
-          cp bin/magicmail fnapp/app/server/magicmail
-          chmod +x fnapp/app/server/magicmail
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      # 断言 guard：网关下一旦 base 丢失就是白屏，宁可 CI 失败也不要出坏包
+      - name: Verify gateway base
+        run: |
+          if ! grep -q '"/app/magicmail/' server/dist/index.html; then
+            echo "::error::前端 index.html 未带 /app/magicmail 前缀，网关下会白屏"
+            exit 1
+          fi
+          if grep -q '"src":"/icons/' server/dist/manifest.webmanifest; then
+            echo "::error::manifest.webmanifest 图标未带 /app/magicmail 前缀，网关下会 404"
+            exit 1
+          fi
+          echo "OK: 前端产物已带 /app/magicmail 前缀"
+
+      - name: Build Go binary for FPK
+        working-directory: server
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p ../fnapp/app/server
+          rm -rf embedfs/dist
+          cp -r dist embedfs/dist
+          go build \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.isProduction=true" \
+            -o ../fnapp/app/server/magicmail \
+            .
+          chmod +x ../fnapp/app/server/magicmail
+          echo "Built: $(du -h ../fnapp/app/server/magicmail | cut -f1)"
+          file ../fnapp/app/server/magicmail || true
+
+      # 架构装错 = 装上就跑不起来，这里直接卡住
+      - name: Verify binary arch
+        run: |
+          BIN="fnapp/app/server/magicmail"
+          if ! command -v file >/dev/null 2>&1; then
+            echo "::warning::未找到 file 命令，跳过二进制架构校验"
+            exit 0
+          fi
+          INFO="$(file -b "${BIN}")"
+          echo "Binary: ${INFO}"
+          case "${{ matrix.goarch }}" in
+            amd64) echo "${INFO}" | grep -q 'x86-64' || { echo "::error::期望 x86_64 二进制，实际: ${INFO}"; exit 1; } ;;
+            arm64) echo "${INFO}" | grep -qE 'aarch64|ARM' || { echo "::error::期望 ARM64 二进制，实际: ${INFO}"; exit 1; } ;;
+          esac
+
+      # 架构声明必须与包内二进制一致，否则目标设备安装时会拒绝
+      - name: Set manifest platform
+        working-directory: fnapp
+        run: |
+          sed -i "s|^platform *=.*|platform              = ${{ matrix.platform }}|" manifest
+          grep '^platform' manifest
 
       - name: Install fnpack
         run: |
@@ -160,22 +241,24 @@ jobs:
         working-directory: fnapp
         run: fnpack build
 
-      # 查找并上传 FPK 产物
-      - name: Find and upload FPK artifact
+      # fnpack 输出的包名不固定，这里统一成 名称-版本-架构.fpk
+      - name: Rename FPK
+        working-directory: fnapp
         run: |
-          FPK_FILE=$(ls *.fpk 2>/dev/null | head -1)
-          if [ -n "$FPK_FILE" ]; then
-            echo "FPK_FILE=$FPK_FILE" >> "$GITHUB_ENV"
-            echo "Found FPK: $FPK_FILE ($(du -h $FPK_FILE | cut -f1))"
-          else
-            echo "No .fpk file found in fnapp/"
+          SRC="$(ls *.fpk 2>/dev/null | head -1)"
+          if [ -z "${SRC}" ]; then
+            echo "::error::fnapp/ 下未找到 .fpk 产物"
             exit 1
           fi
-        working-directory: fnapp
+          DST="magicmail-${VERSION}-${{ matrix.arch }}.fpk"
+          if [ "${SRC}" != "${DST}" ]; then
+            mv "${SRC}" "${DST}"
+          fi
+          ls -lh *.fpk
 
       - uses: actions/upload-artifact@v5
         with:
-          name: magicmail-fpk
+          name: fpk-${{ matrix.arch }}
           path: fnapp/*.fpk
           retention-days: 1
 
@@ -196,11 +279,12 @@ jobs:
           pattern: magicmail-*
           merge-multiple: false
 
-      # 下载 FPK 产物
+      # 下载 FPK 产物（x86 + arm64，两个 job 的产物合并到同一目录）
       - uses: actions/download-artifact@v5
         with:
-          name: magicmail-fpk
+          pattern: fpk-*
           path: all-artifacts/fpk
+          merge-multiple: true
 
       # 查看产物结构（调试用）
       - name: List artifacts
@@ -240,7 +324,8 @@ jobs:
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
-            echo "| 飞牛 fnOS (Linux amd64) | \`magicmail.fpk\` | 一键安装到飞牛系统 |"
+            echo "| 飞牛 fnOS (x86_64) | \`magicmail-${VERSION}-x86.fpk\` | 一键安装到飞牛系统 |"
+            echo "| 飞牛 fnOS (ARM64) | \`magicmail-${VERSION}-arm64.fpk\` | 一键安装到飞牛系统 |"
             echo ""
             echo "> 解压后直接运行，无需额外依赖。默认监听 \`http://localhost:8080\`"
             echo "EOF"
@@ -259,6 +344,6 @@ jobs:
             all-artifacts/magicmail-linux-arm/magicmail-arm
             all-artifacts/magicmail-linux-arm64/magicmail-arm64
             all-artifacts/magicmail-darwin-amd64/magicmail-macos-x86_64
-            all-artifacts-magicmail-darwin-arm64/magicmail-macos-arm64
+            all-artifacts/magicmail-darwin-arm64/magicmail-macos-arm64
             all-artifacts/magicmail-windows-amd64/magicmail.exe
             all-artifacts/fpk/*.fpk
