@@ -10,9 +10,10 @@ FROM golang:1.25-bookworm
 
 COPY --from=node /usr/local/ /usr/local/
 
-# web/package.json 没有声明 packageManager，必须显式锁定 pnpm 大版本（与 CI 的 10 对齐）
-RUN corepack enable \
-    && corepack prepare pnpm@10 --activate \
+# web/package.json 未声明 packageManager，需显式锁定 pnpm 大版本（与 CI 的 10 对齐）。
+# 这里不用 corepack enable：它会为 npm/yarn/pnpm 全部生成 shim，而 node:22 镜像里
+# 已无 yarn，realpath 会失败并中断构建。npm 全局安装更直接。
+RUN npm install -g pnpm@10 \
     && node -v && pnpm -v && go version
 
 # fnpack：飞牛 fnOS 应用打包工具（版本与 .github/workflows/release.yml 保持一致）
