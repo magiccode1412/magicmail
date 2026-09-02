@@ -69,6 +69,13 @@ jobs:
             echo "tag=$CLEAN_TAG" >> $GITHUB_OUTPUT
           fi
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          # 仅「正式版 tag 推送」才允许生成 latest / 1.2 / 1 这类浮动标签，
+          # 避免 rc 版 (v1.2.0-rc.1) 把 latest 指向预发布镜像。
+          if [[ "${GITHUB_REF}" == refs/tags/v* && "${GITHUB_REF_NAME}" != *-* ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
 
       # ─── 5a. 登录 Docker Hub ─────────────────────
       - name: Log in to Docker Hub
@@ -99,9 +106,12 @@ jobs:
           tags: |
             # tag 推送: v1.2.3 → 1.2.3, 1.2, 1, latest
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            # 浮动标签只在正式版生成，rc/alpha 等预发布不参与
+            type=semver,pattern={{major}}.{{minor}},enable=${{ steps.tag.outputs.is_release }}
+            type=semver,pattern={{major}},enable=${{ steps.tag.outputs.is_release }}
+            # 注意: is_default_branch 在 tag 推送时恒为 false (ref 为 refs/tags/v*)，
+            # 之前的写法导致 latest 标签从未被打上，这里改为按「正式版 tag 事件」启用
+            type=raw,value=latest,enable=${{ steps.tag.outputs.is_release }}
             # 手动触发: 使用自定义标签或自动获取最新 git tag
             type=raw,value=${{ inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
             type=raw,value=${{ steps.tag.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag == '' }}
