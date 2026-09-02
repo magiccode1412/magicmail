@@ -68,7 +68,13 @@ $:
       stages:
         - name: get_version
           script: |
-            VERSION=$(jq -r '.version' /workspace/version.json)
+            # version.json 没有 version 字段，最新版本号在 latest（形如 v1.2.0）；
+            # Docker 镜像标签惯例不带 v 前缀，这里一并去掉
+            VERSION=$(jq -r '.latest // empty' /workspace/version.json | sed 's/^v//')
+            if [ -z "${VERSION}" ]; then
+              echo "::error::version.json 中未取到 latest 版本号"
+              exit 1
+            fi
             echo "##[set-output app_version=$VERSION]"
           exports:
             app_version: APP_VERSION
