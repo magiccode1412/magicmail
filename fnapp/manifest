@@ -16,7 +16,9 @@ desktop_applaunchname = magicmail.Application
 gatewayPrefix         = /app/magicmail
 gatewaySocket         = app.sock
 checkport             = false
-changelog             = """- 安装向导新增「访问方式」选择：默认仅飞牛统一网关，可选「同时开启 TCP 端口」支持局域网/外部直连（端口默认 23232，非必需）
+changelog             = """- 仅通过飞牛统一网关访问：移除「同时开启 TCP 端口」选项与应用配置向导，网关已完成 NAS 级认证，避免额外的无保护暴露面；需要端口访问请部署 Docker / 独立版本
+- 后端路由改为单套根路由，统一网关透传的 /app/magicmail 前缀由服务端自动剥离
+- Unix Socket 权限收紧为 0660，仅应用与网关可访问
 - 适配飞牛统一网关，支持通过飞牛账号登录/绑定（可选登录方式，保留原账号密码）
 - 新增Outlook OAuth2支持、一键全部标记已读、邮箱服务商品牌图标、CNB平台Docker镜像构建
 - 完善Docker权限管理(PUID/PGID)、纯Go SQLite禁用CGO、飞牛fnOS FPK包构建与多架构Docker流水线

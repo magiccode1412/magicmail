@@ -3,6 +3,11 @@
 > 目标：让 `fnapp`（魔法邮箱）适配飞牛统一网关，**通过飞牛登录应用**，但**必须绑定到应用原有账号**。
 > 适用技能：`fnos-developer`；准则遵循 `security-review.md`。
 
+> ⚠️ **已修订**：本计划的「双前缀注册」与「TCP 并行监听（both 模式）」结论已被
+> `docs/gateway-prefix-strip-plan.md` 取代 —— 飞牛形态现为**仅 Unix Socket 单入口**（不提供 TCP 端口），
+> 后端只维护**一套根路由**，网关透传的 `/app/magicmail` 前缀由 `middleware.BasePath` 在匹配前剥离。
+> 下文 §1.1、§2.2、§4.2、§6 的相关条目已同步订正。
+
 ---
 
 ## 1. 设计摘要
@@ -19,7 +24,7 @@
 | 平台架构 | 暂不改 |
 | SSE 鉴权 | **保留原 JWT**（`Authorization` / `?token=`），不依赖网关 Header |
 | 绑定关系 | **一对一**：一个 `fnos_uid` 至多绑一个 magicmail 账号；一个 magicmail 账号仅可被一个 `fnos_uid` 绑定 |
-| 监听方式 | 环境变量控制：未设置→TCP（`0.0.0.0:PORT`）；设置（如 `unix://.../app.sock`）→Unix Socket。**飞牛安装走 Socket** |
+| 监听方式 | 环境变量控制：未设置→TCP（`0.0.0.0:PORT`）；设置（如 `unix://.../app.sock`）→Unix Socket。**飞牛安装只走 Socket，且不提供 TCP 端口**（网关已完成 NAS 级认证；需要端口访问请部署非飞牛版本） |
 | 老数据 | **必须手动绑定**：升级后任何现有账号都不会被自动绑定到飞牛身份 |
 
 ### 1.2 登录流程图
@@ -37,7 +42,7 @@
 
 ### 1.3 安全红线（务必遵守）
 
-- `X-Trim-Userid` 等网关 Header **只在网关前缀路由下信任**；普通 TCP 端口路由即使伪造该 Header 也不读取、不信任。
+- `X-Trim-Userid` 等网关 Header **只信任来自统一网关的 Unix Socket 连接**：`GatewayIdentity()` 以连接来源（`RemoteAddr().Network()=="unix"`）为信任边界，其它入口即使伪造该 Header 也不读取、不信任。此外**飞牛形态不再监听 TCP 端口**，从根上消除了「直连伪造」路径。
 - 后端信任网关身份的唯一来源是 `X-Trim-Userid`（数字 ID），**绝不信任客户端请求体声明的 uid**。
 - 绑定关系写入数据库前，必须校验：该 `fnos_uid` 未被其他账号占用（一对一约束）；绑定已有账号时必须校验原密码。
 - JWT 密钥与加密密钥沿用既有 `EnsureSecuritySecrets`，不新增密钥面。
@@ -86,8 +91,11 @@
 SOCK="${TRIM_APPDEST}/app.sock"
 export MAGICMAIL_DSN="${DB_PATH}"
 export MAGICMAIL_LISTEN="unix://${SOCK}"
-# 与 manifest gatewayPrefix、前端 BASE_URL 对齐，后端据此双注册带前缀路由
+# 与 manifest gatewayPrefix、前端 BASE_URL 对齐；网关整段透传该前缀，
+# 后端由 middleware.BasePath 在匹配前剥离（只需一套根路由）
 export MAGICMAIL_BASE_PATH="/app/magicmail"
+# 不提供 TCP 端口：网关已完成 NAS 级认证，额外端口等于无保护的登录入口
+unset MAGICMAIL_TCP_ENABLED MAGICMAIL_TCP_ADDR
 rm -f "${SOCK}"
 nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
 # 等待进程存活 + socket 文件出现（替代原 ss 端口检测）
@@ -112,19 +120,24 @@ nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
   - 前缀 `tcp://` → 原 `app.Listen(addr)`。
 - 在 unix socket 模式下，Fiber 不需要 `Host/Port`，但仍保留 `/health` 供网关探活。
 
-#### 后端路由前缀兼容设计（关键）
+#### 后端前缀剥离设计（关键，已修订）
 
-飞牛统一网关在转发请求到应用 Unix Socket 时，**是否剥离 `gatewayPrefix` 前缀的官方行为未明确文档化**。为避免 404，后端采用**双前缀注册**方案，无论网关透传还是剥离前缀都兼容：
+飞牛统一网关在转发请求到应用 Unix Socket 时，**不会剥离 `gatewayPrefix` 前缀，而是整段透传**。
+后端原先采用「双前缀注册」兼容两种网关行为，现改为**前置剥离中间件 + 单套根路由**：
 
-- `routes.Register()` 先计算前缀列表：`[""]`（根路径）+ 当 `cfg.Server.BasePath` 非空时追加 `["/app/magicmail"]`。
-- Service / Handler 层只初始化一次；随后对每个前缀调用 `registerAppRoutes(app, prefix, deps)`，把全部 API、`/health`、静态文件与 SPA fallback 注册到该前缀下。
-- 因此后端同一套 handler 同时挂在 `/api/v1/...` 与 `/app/magicmail/api/v1/...`：
-  - 网关**透传**前缀（`/app/magicmail/api/v1/...`）→ 命中带前缀路由 ✓
-  - 网关**剥离**前缀（`/api/v1/...`）→ 命中根路由 ✓
-- 静态资源与 SPA fallback 同样按前缀 group 隔离：`serveFrontend(app, prefix)` / `serveIndexHTML(c, prefix)` 从请求路径去掉前缀后再读取 `embed.FS`，根路径 `/` 与 `/app/magicmail/` 都能正确返回 `index.html`。
-- Docker（不设 `MAGICMAIL_BASE_PATH`）仅注册根路由，零改动。
+- `server/main.go` 在**所有路由注册之前** `app.Use(middleware.BasePath(cfg.Server.BasePath))`。
+- `middleware/basepath.go`：路径等于 `/app/magicmail` 或以 `/app/magicmail/` 开头时，
+  调用 `c.Path(rest)` 去掉前缀并 `c.Next()`。Fiber v2 的路由栈只前进不回退，
+  **后续尚未遍历到的路由会按新路径匹配**（官方 `rewrite` 中间件同一原理，已实测验证）。
+- 因此后端只需注册根路由 `/api/v1/**`、`/health`、静态资源、SPA fallback **各一次**：
+  - 网关**透传**前缀（`/app/magicmail/api/v1/...`）→ 剥离 → 命中根路由 ✓
+  - 网关若**剥离**前缀（`/api/v1/...`）→ 无前缀可剥 → 命中根路由 ✓
+- 静态资源与 SPA fallback 直接按剥离后的路径读 `embed.FS`，不再需要「候选路径」猜测。
+- Docker（不设 `MAGICMAIL_BASE_PATH`）时该中间件完全透传，行为零变化。
 
-> 注：Fiber 的路由匹配发生在中间件之前，故「前缀剥离中间件」方案不可行（改 `c.Path()` 不会重新路由），必须双注册。
+> ~~注：Fiber 的路由匹配发生在中间件之前，故「前缀剥离中间件」方案不可行（改 `c.Path()` 不会重新路由），必须双注册。~~
+> **该结论已实测推翻**：`app.Use` 与路由同处 `app.stack`，`c.Next()` 会重新进入 `app.next(c)`
+> 并按当时的 `detectionPath`/`treePath` 继续匹配。详见 `docs/gateway-prefix-strip-plan.md` §3.1。
 
 **三方一致性约束**：飞牛部署时 `manifest.gatewayPrefix` = `/app/magicmail`、前端 `BASE_URL=/app/magicmail`、后端 `MAGICMAIL_BASE_PATH=/app/magicmail` 必须保持一致，改其一须同步另两处。
 
@@ -215,7 +228,7 @@ authGroup.Post("/fnos/register", authHandler.FnosRegister) // 注册新账号并
 - `AuthService.GetFnosBind`：未绑定时返回 nil；已绑定时命中。
 - `BindExistingByFnOS`：密码错误拒绝；`fnos_uid` 重复占用拒绝；成功后写入。
 - `RegisterByFnOS`：首个用户为 admin；开放注册关闭时拒绝普通注册。
-- `gatewayIdentity` 伪造 Header 在 TCP 路由下不生效（由路由层保证，集成测试覆盖）。
+- `gatewayIdentity` 伪造 Header 在非 Unix Socket 连接下不生效（由**连接来源**保证，单测 `TestGatewayIdentityTrustBoundary` 覆盖）。
 
 ### 4.3 验收清单
 - [ ] fnOS 部署：应用入口走 `/app/magicmail`，后端监听 `TRIM_APPDEST/app.sock`，网关探活 `/health` 正常。
@@ -225,7 +238,7 @@ authGroup.Post("/fnos/register", authHandler.FnosRegister) // 注册新账号并
 - [ ] 普通 Docker 部署：行为与改造前完全一致，无飞牛入口。
 - [ ] SSE 在两种部署下均正常（JWT 鉴权）。
 - [ ] 升级老数据：现有账号不自动绑定，需手动走绑定流程。
-- [ ] 安全审查：网关 Header 仅在网关路由信任；伪造 `X-Trim-Userid` 在直连端口下无效。
+- [ ] 安全审查：网关 Header 仅信任 Unix Socket 连接；飞牛形态无 TCP 端口，伪造 `X-Trim-Userid` 无效。
 
 ---
 
@@ -239,14 +252,14 @@ authGroup.Post("/fnos/register", authHandler.FnosRegister) // 注册新账号并
 
 ## 6. 实现记录（已完成）
 
-1. ✅ `server/config/config.go` + `server/main.go` + `server/routes/routes.go`：监听方式切换（TCP/Unix）与**路由前缀兼容**。`MAGICMAIL_LISTEN` 控制监听（默认 `tcp://HOST:PORT`，设 `unix://` 走 Socket，启动前删旧 socket、退出 `defer` 删、权限 0666）；`MAGICMAIL_BASE_PATH` 控制应用基础路径（飞牛包设 `/app/magicmail`），后端据此**双注册**根路由与带前缀路由，兼容网关透传/剥离前缀两种行为（详见 §2.2 后端路由前缀兼容设计）。
+1. ✅ `server/config/config.go` + `server/main.go` + `server/routes/routes.go`：监听方式切换（TCP/Unix）与**前缀剥离**。`MAGICMAIL_LISTEN` 控制监听（默认 `tcp://HOST:PORT`，设 `unix://` 走 Socket，启动前删旧 socket、退出 `defer` 删、权限 **0660**）；`MAGICMAIL_BASE_PATH` 控制公开前缀（飞牛包设 `/app/magicmail`），后端据此在**路由匹配前剥离**前缀、只维护一套根路由（详见 §2.2 后端前缀剥离设计；迁移过程见 `docs/gateway-prefix-strip-plan.md`）。
 2. ✅ `server/models/user.go`：加 `fnos_uid` 字段（`uniqueIndex`，默认 `''`）+ 迁移；新增 `FnosStatusResponse` / `FnosBindRequest` / `FnosRegisterRequest` DTO。
 3. ✅ `server/services/auth_service.go`：加 `GetFnosBind` / `FnosLogin` / `BindExistingByFnOS` / `RegisterByFnOS`，及错误常量 `ErrFnosUIDEmpty` / `ErrFnosAlreadyBound` / `ErrAccountBoundByFnos` / `ErrFnosNotBound`。
 4. ✅ `server/middleware/auth.go`：加 `GatewayIdentity` 只读辅助（仅网关路由调用，不信任 body）。
 5. ✅ `server/handlers/auth_handler.go` + `routes/routes.go`：加 `/fnos/status`、`/fnos/login`（已绑定免密）、`/fnos/bind`、`/fnos/register` 公开路由。
 6. ✅ `web/src/api/auth.js` + `authStore.js`：飞牛状态与登录封装（`fnosStatus` / `fnosLogin` / `fnosBind` / `fnosRegister`；store 加 `gatewayAvailable` / `fnosBound` / `fnosUsername` 及 `doFnos*` 方法）。
 7. ✅ `web/src/views/LoginView.vue`：飞牛登录/绑定/注册 UI（已绑定一键免密；未绑定引导注册/绑定；非网关环境自动隐藏）。
-8. ✅ `fnapp/manifest`（加 `gatewayPrefix` / `gatewaySocket` / `checkport=false`）+ `fnapp/app/ui/config`（网关模式、`allUsers=true`）+ `fnapp/cmd/main`（Unix Socket 启动与探活、停止清理 socket、注入 `MAGICMAIL_BASE_PATH=/app/magicmail`）。
+8. ✅ `fnapp/manifest`（加 `gatewayPrefix` / `gatewaySocket` / `checkport=false`）+ `fnapp/app/ui/config`（网关模式、`allUsers=true`）+ `fnapp/cmd/main`（Unix Socket 启动与探活、停止清理 socket、注入 `MAGICMAIL_BASE_PATH=/app/magicmail`、**不注入 TCP 变量**、socket 权限 0660）；`fnapp/wizard/install` 仅保留欢迎步骤（已移除「访问方式」），`fnapp/wizard/config` 已删除。
 9. ⏳ 后端单测 + 验收清单核对（待 CI / 真机验收）。
 
 ### 实现中新增的端点说明

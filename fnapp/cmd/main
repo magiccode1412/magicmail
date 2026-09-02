@@ -232,41 +232,22 @@ start_process() {
     log_msg "SOCK=${SOCK} DB_PATH=${DB_PATH} DATA_DIR=${DATA_DIR}"
     log_msg "APP_BIN=${APP_BIN}"
 
-    # 4. 启动进程（飞牛统一网关模式：始终监听 Unix Socket）
-    #    部署模式由安装向导注入的环境变量控制：
-    #      fnos_listen_mode: gateway（默认，仅统一网关）/ both（同时开启 TCP 端口）
-    #      fnos_tcp_port:    TCP 端口（仅 both 模式使用，默认 23232，非必需）
-    #    → 翻译成后端环境变量：
-    #      MAGICMAIL_LISTEN        unix:// 路径（网关必需）
-    #      MAGICMAIL_TCP_ENABLED   1 表示启用并行 TCP 监听
-    #      MAGICMAIL_TCP_ADDR      0.0.0.0:PORT
-    LISTEN_MODE="${fnos_listen_mode:-gateway}"
-    TCP_PORT="${fnos_tcp_port:-23232}"
-
-    # 端口合法性兜底：非 1-65535 则回退 23232
-    if ! echo "${TCP_PORT}" | grep -qE '^[0-9]{1,5}$' || [ "${TCP_PORT}" -lt 1 ] || [ "${TCP_PORT}" -gt 65535 ]; then
-        log_msg "WARN: 无效 TCP 端口 '${TCP_PORT}'，回退默认 23232"
-        TCP_PORT="23232"
-    fi
-
+    # 4. 启动进程（飞牛统一网关模式：仅监听 Unix Socket）
+    #    不再提供 TCP 端口：统一网关已完成 NAS 级认证，额外监听端口等于开放一个
+    #    无保护的登录入口。需要端口访问请部署非飞牛版本（Docker / build.sh）。
     export MAGICMAIL_DSN="${DB_PATH}"
     export MAGICMAIL_LISTEN="unix://${SOCK}"
-    # 与前端 BASE_URL、飞牛网关 gatewayPrefix（manifest 中的 /app/magicmail）保持一致；
-    # 后端据此注册带前缀的路由，兼容网关透传或剥离前缀两种行为。
+    # 与前端 BASE_URL、飞牛网关 gatewayPrefix（manifest 中的 /app/magicmail）保持一致。
+    # 网关会把该前缀整段透传，后端由 middleware.BasePath 在路由匹配前剥离，
+    # 因此后端只需维护一套根路由。
     # 注意：修改此处需同步修改 fnapp/manifest 的 gatewayPrefix 与前端 vite BASE_URL。
     export MAGICMAIL_BASE_PATH="/app/magicmail"
 
-    if [ "${LISTEN_MODE}" = "both" ]; then
-        export MAGICMAIL_TCP_ENABLED="1"
-        export MAGICMAIL_TCP_ADDR="0.0.0.0:${TCP_PORT}"
-        log_msg "模式: 同时开启端口 (TCP ${TCP_PORT}) + 统一网关"
-    else
-        # 仅网关：不设置 TCP 相关变量（向后兼容纯 Unix 模式）
-        unset MAGICMAIL_TCP_ENABLED MAGICMAIL_TCP_ADDR
-        log_msg "模式: 仅使用飞牛统一网关"
-    fi
+    # 显式清除：防止从父进程环境或旧构建残留中继承，导致端口被意外监听
+    unset MAGICMAIL_TCP_ENABLED MAGICMAIL_TCP_ADDR
+    log_msg "模式: 仅使用飞牛统一网关（不监听 TCP 端口）"
 
-    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, LISTEN=unix://${SOCK}, TCP_ENABLED=${MAGICMAIL_TCP_ENABLED:-no}"
+    log_msg "[DEBUG] Executing: nohup ${APP_BIN} with env DSN=${DB_PATH}, LISTEN=unix://${SOCK}"
     
     nohup "${APP_BIN}" >> "${LOG_FILE}" 2>&1 &
     local launch_rc=$?
@@ -285,9 +266,8 @@ start_process() {
     echo "  MAGICMAIL_DSN=${MAGICMAIL_DSN}" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_LISTEN=${MAGICMAIL_LISTEN}" >> "${DIAG_FILE}" 2>/dev/null
     echo "  MAGICMAIL_BASE_PATH=${MAGICMAIL_BASE_PATH}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  fnos_listen_mode=${LISTEN_MODE}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_TCP_ENABLED=${MAGICMAIL_TCP_ENABLED:-unset}" >> "${DIAG_FILE}" 2>/dev/null
-    echo "  MAGICMAIL_TCP_ADDR=${MAGICMAIL_TCP_ADDR:-unset}" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  listen_mode=unix-socket-only（仅统一网关，不监听 TCP）" >> "${DIAG_FILE}" 2>/dev/null
+    echo "  MAGICMAIL_TCP_ENABLED=unset" >> "${DIAG_FILE}" 2>/dev/null
 
     # 5. 等待确认启动
     local count=0

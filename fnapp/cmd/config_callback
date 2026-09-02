@@ -1,15 +1,7 @@
 #!/bin/bash
 
 ### This script is called after the user change environment variables in application setting page.
-### 配置向导（wizard/config）修改访问方式 / TCP 端口后，重启服务使新监听模式生效。
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAIN_SCRIPT="${SCRIPT_DIR}/main"
-
-# 先停止，再启动；start_process 内部会读取 fnos_listen_mode / fnos_tcp_port 注入新环境变量
-if [ -f "${MAIN_SCRIPT}" ]; then
-    bash "${MAIN_SCRIPT}" stop
-    bash "${MAIN_SCRIPT}" start
-fi
+### 已移除配置向导（wizard/config）：单入口（统一网关）模式下无运行时可配置项，无需重启。
+### 保留本脚本为空实现，避免平台在缺失该回调时报错。
 
 exit 0
