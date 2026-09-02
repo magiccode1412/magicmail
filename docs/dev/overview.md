@@ -91,3 +91,4 @@ cd web && pnpm dev             # 终端 2
 - [项目架构](/dev/architecture) - 详细架构说明
 - [后端开发](/dev/backend) - Go 后端开发指南
 - [前端开发](/dev/frontend) - Vue 前端开发指南
+- [发布流程](/dev/release) - 版本发布、tag 规范与 CI/CD

@@ -96,6 +96,7 @@ export default defineConfig({
         { text: '前端开发', link: '/dev/frontend' },
         { text: '添加 IMAP 功能', link: '/dev/imap-extension' },
         { text: '主题定制', link: '/dev/theming' },
+        { text: '发布流程', link: '/dev/release' },
       ],
       '/config/': [
         { text: '环境变量', link: '/config/environment' },
