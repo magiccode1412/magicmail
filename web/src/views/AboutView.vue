@@ -1,4 +1,4 @@
-xu'yao<!-- 
+<!-- 
   SPDX-License-Identifier: AGPL-3.0-or-later
   Copyright (C) 2026  magiccode (魔法代码)
 -->
@@ -23,15 +23,11 @@ xu'yao<!--
           </div>
           <div v-if="remoteVersion" class="info-item">
             <span>最新版本</span>
-            <span :class="{ 'text-success': versionHasUpdate, 'text-tertiary': !versionHasUpdate }">
-              {{ remoteVersion }}
-              <span v-if="versionHasUpdate" class="badge badge-success" style="margin-left: 6px;">有新版本</span>
-              <span v-else-if="!checkingUpdate && remoteVersion === `v${localVersion}`" class="badge badge-default" style="margin-left: 6px;">已是最新</span>
+            <span :class="{ 'text-success': versionHasNewer, 'text-tertiary': !versionHasNewer }">
+              v{{ remoteVersion }}
+              <span v-if="versionHasNewer" class="badge badge-success" style="margin-left: 6px;">有新版本</span>
+              <span v-else-if="!checkingUpdate && remoteVersion === localVersion" class="badge badge-default" style="margin-left: 6px;">已是最新</span>
             </span>
-          </div>
-          <div class="info-item">
-            <span>API 地址</span>
-            <span>{{ apiBase }}</span>
           </div>
         </div>
 
@@ -48,7 +44,7 @@ xu'yao<!--
             {{ checkingUpdate ? '检查中...' : '检查更新' }}
           </button>
           <a
-            href="https://magicmail1412.netlify.app/"
+            href="https://magicmail.160621.xyz/changelog"
             target="_blank"
             rel="noopener"
             class="btn btn-secondary btn-sm"
@@ -60,7 +56,7 @@ xu'yao<!--
             更新日志
           </a>
           <a
-            v-if="versionHasUpdate && versionDownloadUrl"
+            v-if="versionHasNewer && versionDownloadUrl"
             :href="versionDownloadUrl"
             target="_blank"
             rel="noopener"
@@ -87,6 +83,10 @@ xu'yao<!--
         <p class="section-desc">本项目由魔法代码开发并开源</p>
 
         <div class="about-info">
+          <div class="info-item">
+            <span>官网</span>
+            <a :href="officialSite" target="_blank" rel="noopener" class="link">{{ officialSite }}</a>
+          </div>
           <div class="info-item">
             <span>作者</span>
             <span><strong>魔法代码 (magiccode)</strong></span>
@@ -125,14 +125,14 @@ const toast = useToast()
 const {
   latestVersion: remoteVersion,
   currentVersion: localVersion,
-  hasUpdate: versionHasUpdate,
+  // 手动点「检查更新」时用客观结果：即使横幅被忽略过，这里仍如实显示是否有新版本
+  hasNewerVersion: versionHasNewer,
   downloadUrl: versionDownloadUrl,
   loading: checkingUpdate,
   checkUpdate: doCheckUpdate,
 } = useUpdateCheck()
 
-const apiBase = window.location.origin + import.meta.env.BASE_URL + 'api/v1'
-
+const officialSite = 'https://magicmail.160621.xyz/'
 const githubProfile = 'https://github.com/magiccode1412'
 const githubRepo = 'https://github.com/magiccode1412/magicmail'
 

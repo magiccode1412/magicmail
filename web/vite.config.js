@@ -23,7 +23,7 @@ export default defineConfig({
   base,
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version || '0.0.0'),
-    __UPDATE_CHECK_URL__: JSON.stringify(process.env.UPDATE_CHECK_URL || 'https://api.160621.xyz/v1/version/magicmail'),
+    __UPDATE_CHECK_URL__: JSON.stringify(process.env.UPDATE_CHECK_URL || 'https://api.160621.xyz/v1/magicmail/version'),
   },
   plugins: [
     vue(),

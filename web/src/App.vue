@@ -9,7 +9,7 @@
   </div>
 
   <!-- 已登录：主应用界面 -->
-  <div v-else-if="isLoggedIn" class="app" :class="{ 'dark': isDark }">
+  <div v-else-if="isLoggedIn" class="app" :class="{ 'dark': isDark, 'has-update-banner': hasUpdate }">
     <!-- 更新提示横幅 -->
     <div v-if="hasUpdate" class="update-banner" role="banner">
       <div class="update-banner-inner">
@@ -18,7 +18,7 @@
           <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/>
         </svg>
         <span>
-          发现新版本 <strong>v{{ latestVersion }}</strong>（当前 v{{ __APP_VERSION__ }}）
+          发现新版本 <strong>v{{ latestVersion }}</strong>（当前 v{{ currentVersion }}）
           <a v-if="downloadUrl" :href="downloadUrl" target="_blank" rel="noopener" class="update-link">查看更新</a>
         </span>
       </div>
@@ -77,7 +77,7 @@ import { useToast } from './composables/useToast'
 import { useUpdateCheck } from './composables/useUpdateCheck'
 
 const toast = useToast()
-const { hasUpdate, latestVersion, checkUpdate, dismiss: dismissUpdate } = useUpdateCheck()
+const { hasUpdate, latestVersion, currentVersion, checkUpdate, dismiss: dismissUpdate } = useUpdateCheck()
 
 const router = useRouter()
 const route = useRoute()
@@ -175,6 +175,12 @@ onMounted(async () => {
 
 <style scoped>
 .app {
+  /* 更新横幅高度 */
+  --update-banner-height: 40px;
+  /* 横幅显示时才占位（0 → 40px），供 toast 等固定定位元素下移 */
+  --update-banner-offset: 0px;
+  /* 顶部可用起始位置：有更新横幅时下移，供 .app 自身 padding 使用 */
+  --app-top-offset: var(--space-md);
   display: flex;
   height: 100vh;
   overflow: hidden;
@@ -184,6 +190,13 @@ onMounted(async () => {
   /* 悬浮卡片布局：四周留出间距 */
   padding: var(--space-md);
   box-sizing: border-box;
+}
+
+/* 有更新横幅时让整体内容下移，横幅不再压住顶栏 / 侧边栏 / toast */
+.app.has-update-banner {
+  --update-banner-offset: var(--update-banner-height);
+  --app-top-offset: calc(var(--space-md) + var(--update-banner-offset));
+  padding-top: var(--app-top-offset);
 }
 
 .app-main {
@@ -217,7 +230,8 @@ onMounted(async () => {
 
 /* 响应式适配：小屏幕取消悬浮间距 */
 @media (max-width: 768px) {
-  .app { padding: 0; gap: 0; }
+  .app { padding: 0; gap: 0; --app-top-offset: 0px; }
+  .app.has-update-banner { --app-top-offset: var(--update-banner-offset); }
   .app-content {
     border-radius: 0;
     box-shadow: none;
@@ -264,11 +278,14 @@ onMounted(async () => {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 200;
+  /* 必须高于顶栏(--z-header)，否则横幅右侧会被 sticky 的顶栏盖住 */
+  z-index: calc(var(--z-header) + 1);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px var(--space-md);
+  height: var(--update-banner-height);
+  padding: 0 var(--space-md);
+  box-sizing: border-box;
   background: linear-gradient(135deg, #4F6EF7, #6366f1);
   color: #fff;
   font-size: var(--font-size-sm, 13px);

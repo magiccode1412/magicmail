@@ -260,7 +260,7 @@
         <div class="login-footer">
           <span>Magicmail</span>
           <span class="divider">·</span>
-          <span>v{{ __APP_VERSION__ }}</span>
+          <span>v{{ APP_VERSION }}</span>
         </div>
       </div>
     </div>
@@ -273,9 +273,7 @@ import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useAppStore } from '@/stores/appStore'
-
-// Vite define 注入的全局变量需在模板中显式引用
-const __APP_VERSION__ = import.meta.env.__APP_VERSION__ || '0.0.0'
+import { APP_VERSION } from '@/appVersion'
 
 const router = useRouter()
 const authStore = useAuthStore()

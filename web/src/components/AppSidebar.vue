@@ -249,7 +249,9 @@ onUnmounted(() => {
 <style scoped>
 .app-sidebar {
   position: fixed;
-  top: var(--space-md);
+  /* --update-banner-offset 继承自父级 .app：有更新横幅时才占位(40px)，
+     没有横幅时与原来的 var(--space-md) 完全一致 */
+  top: calc(var(--space-md) + var(--update-banner-offset, 0px));
   left: var(--space-md);
   bottom: var(--space-md);
   width: var(--sidebar-width);
@@ -447,7 +449,8 @@ onUnmounted(() => {
 
 @media (max-width: 1024px) {
   .app-sidebar {
-    top: 0;
+    /* 抽屉模式贴顶显示，同样为更新横幅让出高度 */
+    top: var(--update-banner-offset, 0px);
     left: 0;
     bottom: 0;
     border-radius: 0;
