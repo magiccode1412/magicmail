@@ -3,7 +3,9 @@ $:
     - docker:
         build: .ide/Dockerfile
       services:
-        - vscode
+        - name: vscode
+          options:
+            keepAliveTimeout: 2h
         - docker
 
   push:
