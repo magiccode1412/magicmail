@@ -75,6 +75,28 @@ function formatDate() {
   return new Date().toISOString().split('T')[0]
 }
 
+/**
+ * 把 downloadUrl 归一化成带 {version} 占位符的模板。
+ *
+ * 背景：历史上 version.json 里存的是写死的实际 URL（.../releases/tag/v1.2.0），
+ * 不含占位符，升版本时不会被替换，于是长期指向上一个版本的 Release 页
+ * ——表现为用户收到「发现新版本」提示，点进去却是旧版本页面甚至 404。
+ * 所以这里先把 URL 里已有的版本号还原成占位符，再统一替换成新版本号。
+ */
+function toDownloadUrlTemplate(downloadUrl, githubUrl) {
+  const fallback = `${githubUrl || PROJECT_CONFIG.githubUrl}/releases/tag/{version}`
+
+  if (typeof downloadUrl !== 'string' || !downloadUrl.trim()) return fallback
+
+  // .../releases/tag/v1.2.0(-rc.1 等后缀) → .../releases/tag/{version}
+  const normalized = downloadUrl
+    .trim()
+    .replace(/(releases\/tag\/)v?\d+\.\d+\.\d+[^\s]*/, '$1{version}')
+
+  // 替换后仍拿不到占位符（如自定义域名）时退回默认模板，避免又留下一条写死的旧链接
+  return normalized.includes('{version}') ? normalized : fallback
+}
+
 // ============ 文件操作 ============
 
 /** 读取 package.json */
@@ -281,13 +303,12 @@ function main() {
   if (!vJson.versionApiUrl) {
     vJson.versionApiUrl = PROJECT_CONFIG.versionApiUrl
   }
-  if (!vJson.downloadUrl && detected.downloadUrl) {
-    vJson.downloadUrl = detected.downloadUrl.replace('{version}', newVersionTag)
-  }
-  // 替换 downloadUrl 中的占位符
-  if (vJson.downloadUrl && vJson.downloadUrl.includes('{version}')) {
-    vJson.downloadUrl = vJson.downloadUrl.replace('{version}', newVersionTag)
-  }
+  // downloadUrl 始终按模板重建：即便存量 version.json 里是写死的旧链接也能纠正
+  vJson.downloadUrl = toDownloadUrlTemplate(
+    vJson.downloadUrl || detected.downloadUrl,
+    vJson.githubUrl
+  ).replace('{version}', newVersionTag)
+  console.log(`🔗 downloadUrl → ${vJson.downloadUrl}`)
 
   writeVersionJson(vJson)
 
