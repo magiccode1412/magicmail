@@ -50,6 +50,20 @@ export default defineConfig({
     : '魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台',
   lang: 'zh-CN',
   base,
+  markdown: {
+    config(md) {
+      // 行内代码中的 `{{ }}` 会被 Vue 当作插值表达式编译（如 GitHub Actions 的
+      // `${{ ... }}`、Go template 的 `{{.X}}`），渲染阶段直接报 “xxx is not a function”。
+      // 这里统一给含 `{{` 的行内 <code> 加 v-pre，跳过编译，避免逐个文档手工转义。
+      const defaultCodeInline = md.renderer.rules.code_inline
+      md.renderer.rules.code_inline = (tokens, idx, options, env, self) => {
+        if (tokens[idx].content.includes('{{')) tokens[idx].attrSet('v-pre', '')
+        return defaultCodeInline
+          ? defaultCodeInline(tokens, idx, options, env, self)
+          : `<code${self.renderAttrs(tokens[idx])}>${md.utils.escapeHtml(tokens[idx].content)}</code>`
+      }
+    },
+  },
   vite: {
     server: {
       host: '0.0.0.0',

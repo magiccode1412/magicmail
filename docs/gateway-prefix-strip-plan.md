@@ -72,7 +72,7 @@
 
 `GatewayIdentity` 只看 Header：
 
-```88:95:/workspace/server/middleware/auth.go
+```go
 func GatewayIdentity(c *fiber.Ctx) (fnosUID string, username string, ok bool) {
 	fnosUID = c.Get("X-Trim-Userid")
 	if fnosUID == "" {
