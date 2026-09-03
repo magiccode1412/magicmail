@@ -4,6 +4,18 @@
 
 ## [v1.2.1] - 2026-09-02
 
+### 安全
+- 修复 JWT 以**空密钥**签发与校验：`routes.Register` 内部重复调用 `config.Load()`，而该方法返回的 `Security.JWTSecret` 恒为空串（约定由 `EnsureSecuritySecrets` 填充），导致 `main.go` 中生成的真实密钥从未生效。攻击者可用空密钥伪造任意 `user_id` 的 token 接管任意账号（含管理员）。现由 `main.go` 统一传入已完成初始化的配置
+- ⚠️ **破坏性变更**：密钥由空值改为真实值后，所有已签发 token 立即失效，升级后需重新登录一次
+
+### 修复
+- 修复飞牛统一网关下**登录后所有 API 全部失效**（响应为 `invalid token`）：统一网关注用了 `Authorization` 头，将其当作飞牛自己的凭证校验，失败时直接代答 `HTTP 200 + 纯文本 invalid token`，请求根本到不了应用。业务 JWT 改走自定义头 `X-Auth-Token`，`Authorization` 保留为回退以兼容 Docker / curl 调试
+- 修复登录态无法自愈：`init()` 此前用公开的 `/api/v1/auth/status` 探测 token，而该接口对任何 token 都返回 200，失效 token 永不清除，表现为「已登录但所有数据请求 401」。新增受保护的 `/api/v1/auth/me` 用于探活
+- 修复网关代答被当成正常响应消费：网关拒绝时返回 200 + 英文 `invalid token`，前端既不报错也不清 token，会拿该字符串当数据用。现识别为「NAS 会话失效」并**保留应用登录态**（不再误踢用户）
+- 修复飞牛自动绑定失败被静默吞掉：绑定结果此前只写入 `c.Locals` 无人消费，无从判断「理论上会自动绑定」是否生效。现成功与失败均落日志
+- 修复 Service Worker 缓存带鉴权的 API 响应：Cache API 以 URL 为键、不区分 `Authorization`，切换账号会返回他人数据；已停止缓存 API 响应
+- 修复静态资源缺少 `Cache-Control`：`index.html` 被引擎长期缓存后，升级仍会加载旧版前端（其 Vite base 可能与当前部署不一致）。现 `index.html` / `sw.js` / `*.webmanifest` 为 `no-cache`，带内容 hash 的 `assets/*` 长缓存
+
 ### 部署 & CI/CD
 - 修复 Docker 镜像 `latest` 标签从未更新的问题：浮动标签的启用条件误用了在 tag 推送时恒为 false 的 `is_default_branch`
 - 修复 cnb 同步到 GitHub 时不推送标签的问题：`git-sync` 的 `push_tags` 默认为 false，标签全部留在 cnb，导致 GitHub Actions 中 `tags: ['v*']` 的工作流永远不会触发
@@ -18,6 +30,9 @@
 - dev 分支 push 时自动执行全量构建校验：6 个平台交叉编译、飞牛双架构 FPK 打包、网关前缀与二进制架构断言
 - 新增发布流程文档，说明分支模型、版本号同步、tag 归属校验、同步链路与验收清单
 - 文档站按构建渠道区分正式版 / 开发版：开发版带顶部横幅、页面标题后缀与 `noindex`，避免未发布内容被当成正式文档或被搜索引擎收录
+
+### 构建
+- 修复 `build_fpk.sh` 可能打包到上一轮残留的 `.fpk`：`*.fpk` 的 glob 顺序使 `magicmail-1.2.0-x86.fpk` 先于 `magicmail.fpk` 被命中（`-` 0x2D < `.` 0x2E），又因新旧同名而跳过重命名，导致新包以 `magicmail.fpk` 留在目录、旧包原封不动，极易装错。现打包前先清理历史产物
 
 ## [v1.2.0] - 2026-09-02
 

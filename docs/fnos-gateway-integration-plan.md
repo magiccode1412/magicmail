@@ -45,7 +45,46 @@
 - `X-Trim-Userid` 等网关 Header **只信任来自统一网关的 Unix Socket 连接**：`GatewayIdentity()` 以连接来源（`RemoteAddr().Network()=="unix"`）为信任边界，其它入口即使伪造该 Header 也不读取、不信任。此外**飞牛形态不再监听 TCP 端口**，从根上消除了「直连伪造」路径。
 - 后端信任网关身份的唯一来源是 `X-Trim-Userid`（数字 ID），**绝不信任客户端请求体声明的 uid**。
 - 绑定关系写入数据库前，必须校验：该 `fnos_uid` 未被其他账号占用（一对一约束）；绑定已有账号时必须校验原密码。
+- ⚠️ **`Authorization` 头被统一网关注用，应用的业务 JWT 必须走自定义头**（本项目为 `X-Auth-Token`，见 `server/middleware/auth.go` 的 `XAuthTokenHeader`）。网关会把 `Authorization` 当成飞牛自己的会话/API 凭证去校验，校验失败时**直接代答 `HTTP 200 + 纯文本 invalid token`，请求根本到不了应用的 Unix Socket**。
 - JWT 密钥与加密密钥沿用既有 `EnsureSecuritySecrets`，不新增密钥面。
+  ⚠️ `config.Load()` 返回的 `Security.JWTSecret` / `EncryptionKey` **恒为空串**（约定由 `EnsureSecuritySecrets` 填充）。任何地方都不得在 `EnsureSecuritySecrets` 之后再 `config.Load()` 并据此构造 `AuthService`，否则 JWT 会以空密钥签发与校验，任何人都能伪造任意 `user_id` 接管账号。
+
+#### 排查：请求返回 `invalid token`
+
+网关拒绝请求时有三个极易误导的特征：
+
+| 特征 | 说明 |
+|---|---|
+| HTTP 状态码是 **200** 而非 401 | 是网关「代答」，不是后端拒绝 |
+| 响应体是**英文** `invalid token` | 后端所有 401 均为中文（`未提供认证令牌` / `认证令牌无效或已过期` / `无法解析认证信息`） |
+| 后端日志与访问日志**完全无痕** | 请求没到应用，自然不会有任何记录 |
+
+**判别口诀：响应体是中文 JSON → 后端；英文纯文本 → 网关。**
+注意 `server` 响应头不可用于区分——外层 nginx 会统一改写为 `nginx`，两种情况都是它。
+
+两点尤其反直觉，特地记录：
+
+1. **网关按值判定**。 
+   `Authorization: Bearer 1` 这类短值会被网关放过并正常转发，格式完好的 JWT 才进入校验流程并被拒。
+   于是表现为「**未登录一切正常、登录后全部失效**」——未登录时前端没有 token、不加这个头；登录后每个请求都带上反而全挂。
+   用 curl 随手填个短 token 调试会「正常」，极易把排查方向带偏。
+
+2. **静态资源不受影响**。
+   静态资源请求不带该头，所以页面能打开、资源全 200，看起来「应用是好的」，只有 API 全挂。
+
+排查命令（浏览器控制台，同源即可，无需构造会话）：
+
+```js
+const t = localStorage.getItem('magicmail-token')
+fetch('/app/magicmail/api/v1/accounts', { headers: { 'X-Auth-Token': t } })
+  .then(async r => console.log(r.status, '|', (await r.text()).slice(0, 60)))
+fetch('/app/magicmail/api/v1/accounts', { headers: { Authorization: 'Bearer ' + t } })
+  .then(async r => console.log(r.status, '|', (await r.text()).slice(0, 60)))
+```
+
+第一条返回中文 JSON、第二条返回 `invalid token`，即可确认是 `Authorization` 被网关占用。
+
+> 另：`?token=` 查询参数通道（SSE 流、附件直链）网关不干涉，可正常使用，无需改造。
 
 ---
 
