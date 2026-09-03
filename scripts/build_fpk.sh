@@ -7,14 +7,14 @@
 #   时间戳只在打包期间写入，构建结束（无论成功、失败还是 Ctrl-C 中断）都会还原 manifest。
 #
 # 用法:
-#   ./build_fpk.sh          # 构建 x86 调试包（platform = x86）
-#   ./build_fpk.sh x86      # 同上
-#   ./build_fpk.sh arm64    # 构建 ARM64 调试包（platform = arm）
+#   ./scripts/build_fpk.sh          # 构建 x86 调试包（platform = x86）
+#   ./scripts/build_fpk.sh x86      # 同上
+#   ./scripts/build_fpk.sh arm64    # 构建 ARM64 调试包（platform = arm）
 #
-#   DEBUG_VERSION_SUFFIX="" ./build_fpk.sh   # 不加时间戳后缀，等价于发布包
+#   DEBUG_VERSION_SUFFIX="" ./scripts/build_fpk.sh   # 不加时间戳后缀，等价于发布包
 #
 # 流程:
-# 1. 执行 build.sh linux <amd64|arm64> 单平台构建
+# 1. 执行 scripts/build.sh linux <amd64|arm64> 单平台构建
 # 2. 复制产物到 fnapp/app/server/
 # 3. 按目标架构改写 fnapp/manifest 的 platform，并给 version 追加时间戳
 #    （构建结束后自动还原，不会污染 git 跟踪的 manifest）
@@ -33,11 +33,11 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# 项目根目录（脚本所在位置）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="${SCRIPT_DIR}/bin"
-FNAPP_SERVER_DIR="${SCRIPT_DIR}/fnapp/app/server"
-FNAPP_DIR="${SCRIPT_DIR}/fnapp"
+# 项目根目录（脚本在 scripts/ 下，根目录是上一级）
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN_DIR="${ROOT}/bin"
+FNAPP_SERVER_DIR="${ROOT}/fnapp/app/server"
+FNAPP_DIR="${ROOT}/fnapp"
 BINARY_NAME="magicmail"
 
 # ── 目标架构（默认 x86，可传 arm64）────────────────
@@ -60,7 +60,7 @@ case "${TARGET_ARCH}" in
 esac
 
 MANIFEST_FILE="${FNAPP_DIR}/manifest"
-MANIFEST_BACKUP="${SCRIPT_DIR}/.manifest.bak.$$"
+MANIFEST_BACKUP="${ROOT}/.manifest.bak.$$"
 APP_VERSION="$(sed -n 's/^version[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' "${MANIFEST_FILE}" | head -1)"
 
 # ── 调试包版本号：在原始版本号后追加时间戳 ──────────
@@ -116,10 +116,10 @@ step1_build() {
     echo -e "${BLUE}▶ [Step 1/4] 执行 build.sh linux ${GO_ARCH} 构建（含前端，BASE_URL=${BASE_URL}）...${NC}"
     print_env_summary
 
-    cd "${SCRIPT_DIR}"
+    cd "${ROOT}"
     # BASE_URL 已 export，build.sh 内部 pnpm build 会继承该环境变量，
     # 使前端产物以 /app/magicmail 为 base 打包并嵌入 Go 二进制。
-    ./build.sh linux "${GO_ARCH}"
+    bash "${ROOT}/scripts/build.sh" linux "${GO_ARCH}"
 
     # 检查构建产物是否存在
     if [ ! -f "${BIN_DIR}/${BINARY_NAME}" ]; then

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Magicmail 生产构建脚本
-# 用法: ./build.sh [GOOS] [GOARCH] [GOARM]
+# 用法: ./scripts/build.sh [GOOS] [GOARCH] [GOARM]
 #   不带参数      - 构建全平台版本 (linux/amd64, linux/arm, linux/arm64,
 #                  darwin/arm64, windows/amd64) → bin/
 #   linux amd64     - 交叉编译 Linux x86_64
@@ -12,9 +12,9 @@
 #
 # ARM32 说明:
 #   GOARM 可选值: 5 (armv5), 6 (armv6), 7 (armv7, 默认)
-#   示例: ./build.sh linux arm 7    # Raspberry Pi 2+
-#         ./build.sh linux arm 6     # Raspberry Pi Zero/1
-#         ./build.sh linux arm 5     # 老旧 ARM 设备
+#   示例: ./scripts/build.sh linux arm 7    # Raspberry Pi 2+
+#         ./scripts/build.sh linux arm 6     # Raspberry Pi Zero/1
+#         ./scripts/build.sh linux arm 5     # 老旧 ARM 设备
 # ============================================================================
 
 set -euo pipefail
@@ -28,11 +28,11 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# 项目根目录（脚本所在位置）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_DIR="${SCRIPT_DIR}/server"
-WEB_DIR="${SCRIPT_DIR}/web"
-OUTPUT_DIR="${SCRIPT_DIR}/bin"
+# 项目根目录（脚本在 scripts/ 下，根目录是上一级）
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="${ROOT}/server"
+WEB_DIR="${ROOT}/web"
+OUTPUT_DIR="${ROOT}/bin"
 BINARY_NAME="magicmail"
 
 print_banner() {
@@ -292,7 +292,7 @@ cmd_clean() {
 cmd_help() {
     print_banner
     cat <<EOF
-用法: ./build.sh [命令] [GOOS] [GOARCH] [GOARM]
+用法: ./scripts/build.sh [命令] [GOOS] [GOARCH] [GOARM]
 
 命令:
   (无参数)     构建全平台版本 (5 个架构)
@@ -300,14 +300,14 @@ cmd_help() {
   help         显示帮助信息
 
 单平台示例 (指定 GOOS GOARCH):
-  ./build.sh linux amd64          # Linux x86_64
-  ./build.sh linux arm            # Linux ARM32 (armv7, 默认)
-  ./build.sh linux arm 7          # Linux ARM32 (Raspberry Pi 2+)
-  ./build.sh linux arm 6          # Linux ARM32 (Raspberry Pi Zero/1)
-  ./build.sh linux arm 5          # Linux ARM32 (老旧设备)
-  ./build.sh linux arm64          # Linux ARM64 (AArch64, 如树莓派4/5)
-  ./build.sh darwin arm64         # macOS Apple Silicon
-  ./build.sh windows amd64        # Windows x86_64
+  ./scripts/build.sh linux amd64          # Linux x86_64
+  ./scripts/build.sh linux arm            # Linux ARM32 (armv7, 默认)
+  ./scripts/build.sh linux arm 7          # Linux ARM32 (Raspberry Pi 2+)
+  ./scripts/build.sh linux arm 6          # Linux ARM32 (Raspberry Pi Zero/1)
+  ./scripts/build.sh linux arm 5          # Linux ARM32 (老旧设备)
+  ./scripts/build.sh linux arm64          # Linux ARM64 (AArch64, 如树莓派4/5)
+  ./scripts/build.sh darwin arm64         # macOS Apple Silicon
+  ./scripts/build.sh windows amd64        # Windows x86_64
 
 全平台构建输出:
   bin/magicmail-linux-amd64       Linux x86_64 服务器
@@ -320,7 +320,7 @@ cmd_help() {
   - 前端产物通过 //go:embed 嵌入 Go 二进制，每个二进制独立完整
   - 不带参数时自动构建全部 5 个平台，前端只编译一次
   - ARM32 的 GOARM 参数可选: 5(armv5), 6(armv6), 7(armv7/默认)
-  - 开发环境请使用: ./dev.sh start
+  - 开发环境请使用: ./scripts/dev.sh start
 
 常见设备对应架构:
   - Raspberry Pi Zero/1    → linux arm 6

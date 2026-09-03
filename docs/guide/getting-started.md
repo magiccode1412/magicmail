@@ -76,16 +76,16 @@ docker run -d -p 8080:8080 -v C:\data:C:\data --name magicmail --restart unless-
 
 ```bash
 # 构建当前平台版本
-./build.sh
+./scripts/build.sh
 
 # 交叉编译 Windows 版本
-./build.sh windows amd64
+./scripts/build.sh windows amd64
 
 # 交叉编译 macOS Apple Silicon
-./build.sh darwin arm64
+./scripts/build.sh darwin arm64
 
 # 清理构建产物
-./build.sh clean
+./scripts/build.sh clean
 ```
 
 构建产物输出到 `bin/magicmail`（或 `bin/magicmail.exe`）。
@@ -98,10 +98,10 @@ docker run -d -p 8080:8080 -v C:\data:C:\data --name magicmail --restart unless-
 
 ```bash
 # 一键启动
-./dev.sh start
+./scripts/dev.sh start
 
 # 停止
-./dev.sh stop
+./scripts/dev.sh stop
 ```
 
 或手动分步启动：

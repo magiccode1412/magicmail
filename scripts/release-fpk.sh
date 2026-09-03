@@ -17,7 +17,7 @@
 #      这里用的是 build/web-gateway（BASE_URL=/app/magicmail）。
 #   2. fnapp/manifest 是被 git 跟踪的文件，只能在**副本**里改 platform，
 #      不能 sed 仓库里的原件（本地 build_fpk.sh 用的是备份+还原的方式）。
-#   3. 打包目录沿用 fnapp 这个名字，与本地 ./build_fpk.sh 的路径保持一致，
+#   3. 打包目录沿用 fnapp 这个名字，与本地 scripts/build_fpk.sh 的路径保持一致，
 #      避免 fnpack 对目录名有隐含依赖；Go 源码副本放在 fnapp 外面，不进包体。
 # ============================================================================
 set -euo pipefail

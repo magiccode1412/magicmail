@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Magicmail 一键开发环境启动脚本
-# 用法: ./dev.sh [command]
+# 用法: ./scripts/dev.sh [command]
 #   start   - 启动前后端开发服务器（默认）
 #   stop    - 停止所有开发服务
 #   status  - 查看服务状态
@@ -19,11 +19,11 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# 项目根目录（脚本所在位置）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_DIR="${SCRIPT_DIR}/server"
-WEB_DIR="${SCRIPT_DIR}/web"
-PID_DIR="${SCRIPT_DIR}/.dev-pids"
+# 项目根目录（脚本在 scripts/ 下，根目录是上一级）
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="${ROOT}/server"
+WEB_DIR="${ROOT}/web"
+PID_DIR="${ROOT}/.dev-pids"
 
 # 服务端口
 BACKEND_PORT=8080
@@ -265,7 +265,7 @@ cmd_status() {
 cmd_help() {
     print_banner
     cat <<EOF
-用法: ./dev.sh [命令]
+用法: ./scripts/dev.sh [命令]
 
 命令:
   start         启动前后端开发服务器（默认，前台运行）
@@ -274,17 +274,17 @@ cmd_help() {
   help          显示帮助信息
 
 示例:
-  ./dev.sh              # 启动开发环境（前台运行，Ctrl+C 退出）
-  ./dev.sh start        # 同上
-  ./dev.sh stop         # 停止服务
-  ./dev.sh status       # 查看状态
+  ./scripts/dev.sh              # 启动开发环境（前台运行，Ctrl+C 退出）
+  ./scripts/dev.sh start        # 同上
+  ./scripts/dev.sh stop         # 停止服务
+  ./scripts/dev.sh status       # 查看状态
 
 说明:
   - 默认前台运行，日志实时输出到终端
   - 按 Ctrl+C 可同时停止前后端服务
   - 开发环境自动设置 MAGICMAIL_ENV=dev
   - 首次启动会自动创建默认管理员账号 (admin / admin123)
-  - 生产构建请使用: ./build.sh [GOOS] [GOARCH]
+  - 生产构建请使用: ./scripts/build.sh [GOOS] [GOARCH]
 EOF
 }
 
@@ -308,7 +308,7 @@ main() {
         ;;
     *)
         echo -e "${RED}未知命令: ${cmd}${NC}"
-        echo "运行 './dev.sh help' 查看帮助"
+        echo "运行 './scripts/dev.sh help' 查看帮助"
         exit 1
         ;;
     esac

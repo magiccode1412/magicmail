@@ -67,11 +67,11 @@ chmod +x magicmail.sh && sudo ./magicmail.sh install
 ```
 
 ```bash [源码构建]
-./build.sh
+./scripts/build.sh
 ```
 
 ```bash [开发模式]
-./dev.sh start
+./scripts/dev.sh start
 ```
 
 ::::

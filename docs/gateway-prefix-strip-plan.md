@@ -643,7 +643,7 @@ Vite **不会**给它加 base，导致通过网关访问时浏览器请求 `http
 
 ```bash
 # 1. 构建产物确认无前缀
-./build.sh linux amd64
+./scripts/build.sh linux amd64
 grep -o 'src="[^"]*"' server/dist/index.html | head   # 期望 /assets/... 而非 /app/magicmail/assets/...
 
 # 2. 运行时确认无前缀、无跳转、API 走根路径
@@ -823,7 +823,7 @@ MAGICMAIL_BASE_PATH=/app/magicmail \
 
 ### 8.3 真机验收（fnOS）
 
-1. `./build_fpk.sh` → `appcenter-cli install-fpk`；
+1. `./scripts/build_fpk.sh` → `appcenter-cli install-fpk`；
 2. 安装向导中**不再出现**「访问方式 / TCP 端口」选项；
 3. 应用中心打开 `/app/magicmail` 正常；已绑定用户免密进入；未绑定用户看到绑定/注册引导；
 4. `ls -l $TRIM_APPDEST/app.sock` 权限为 `srw-rw----`，且应用可正常访问（**0660 关键验证**）；
@@ -936,7 +936,7 @@ MAGICMAIL_BASE_PATH=/app/magicmail \
 1. **§8.2 本地 socket 冒烟 9 条**：需在允许启动后台进程的环境执行，脚本见下。
 2. **§8.3 真机验收**：重点是 `app.sock` 权限 `srw-rw----` 下网关仍能正常访问（0660 关键验证），
    失败即回退 `0666`（`server/main.go` 中 `os.Chmod(sockPath, 0660)`）。
-3. **§6.11 非飞牛构建回归**：`./build.sh linux amd64` + Docker 健康检查。
+3. **§6.11 非飞牛构建回归**：`./scripts/build.sh linux amd64` + Docker 健康检查。
 
 ### 12.4 冒烟脚本（供人工执行）
 

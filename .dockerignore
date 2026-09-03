@@ -15,9 +15,8 @@ server/dist
 *.md
 !README.md
 
-# 开发脚本（非运行时需要）
-dev.sh
-build.sh
+# 开发脚本（非运行时需要，deploy.sh 是对外部署入口，保留在根目录）
+scripts/
 deploy.sh
 version.js
 skills-lock.json

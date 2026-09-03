@@ -71,7 +71,7 @@ docker compose -f docker-compose.prebuilt.yml up -d
 ### 方式三：开发模式
 
 ```bash
-./dev.sh start
+./scripts/dev.sh start
 ```
 
 > 详细安装教程、环境变量配置、Windows 部署等，请访问：[使用文档 > 安装部署](https://160621.xyz/magicmail/guide/installation)
