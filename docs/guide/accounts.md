@@ -59,10 +59,13 @@
 ### IMAP IDLE（实时）
 - 默认启用，新邮件秒级到达通知
 - 需要服务器支持 IDLE 扩展（RFC 2177）
-- 不支持时自动降级为轮询
+- 服务器明确不支持时，自动降级为轮询
+- 连接异常时指数退避重连（30s → 60s → 120s），连续失败 4 次后降级为轮询
+- IDLE 期间另有心跳兜底同步：即使服务器静默不推送，也会按 `MAGICMAIL_IDLE_HEARTBEAT`
+  （默认跟随 `MAGICMAIL_POLL_INTERVAL`）主动拉取一次，不会无限等待
 
 ### 定时轮询（兜底）
-- 默认间隔 5 分钟（可通过 `MAGICMAIL_POLL_INTERVAL` 调整）
+- 默认间隔 1 分钟（可通过 `MAGICMAIL_POLL_INTERVAL` 调整，需大于 10 秒）
 - 作为 IDLE 不可用时的备选方案
 - 最低间隔 10 秒
 

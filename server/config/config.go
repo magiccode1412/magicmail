@@ -41,7 +41,8 @@ type DatabaseConfig struct {
 
 // IMAPConfig IMAP 同步配置
 type IMAPConfig struct {
-	PollInterval      int   // 定时轮询间隔（秒），默认 300（5分钟）
+	PollInterval      int   // 定时轮询间隔（秒），默认 60（1分钟）
+	IdleHeartbeat     int   // IDLE 期间兜底同步间隔（秒），0=跟随 PollInterval，最低 60
 	IDLEEnabled       bool  // 是否启用 IDLE，默认 true
 	MaxConcurrent     int   // 最大并发连接数，默认 10
 	SyncBatchSize     int   // 每次拉取邮件数量上限，默认 50
@@ -110,10 +111,21 @@ func Load() *Config {
 		}
 	}
 
-	pollInterval := 300
+	// 默认 60 秒（1 分钟）：轮询是"IDLE 不可用时的唯一收信手段"，
+	// 5 分钟对收验证码这类场景太慢；1 分钟对自托管的少量账号负载可忽略。
+	pollInterval := 60
 	if v := os.Getenv("MAGICMAIL_POLL_INTERVAL"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 10 {
 			pollInterval = p
+		}
+	}
+
+	// IDLE 心跳兜底间隔（秒）：0 表示跟随 MAGICMAIL_POLL_INTERVAL。
+	// 用于僵尸 IDLE 场景：连接看似正常但服务器从不推送时，仍按该节奏主动同步一次。
+	idleHeartbeat := 0
+	if v := os.Getenv("MAGICMAIL_IDLE_HEARTBEAT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			idleHeartbeat = p
 		}
 	}
 
@@ -204,6 +216,7 @@ func Load() *Config {
 		},
 		IMAP: IMAPConfig{
 			PollInterval:      pollInterval,
+			IdleHeartbeat:     idleHeartbeat,
 			IDLEEnabled:       getEnvBool("MAGICMAIL_IDLE_ENABLED", true),
 			MaxConcurrent:     maxConcurrent,
 			SyncBatchSize:     syncBatchSize,

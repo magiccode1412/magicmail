@@ -43,10 +43,23 @@ export MAGICMAIL_CORS_ORIGINS="*"
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MAGICMAIL_POLL_INTERVAL` | `300`（5 分钟）| IMAP 定时轮询间隔（秒），最低 10 秒 |
+| `MAGICMAIL_POLL_INTERVAL` | `60`（1 分钟）| IMAP 定时轮询间隔（秒），需大于 10 秒 |
+| `MAGICMAIL_IDLE_HEARTBEAT` | `0`（跟随 `MAGICMAIL_POLL_INTERVAL`）| IDLE 期间兜底同步间隔（秒），最低 60 秒，见下方说明 |
 | `MAGICMAIL_IDLE_ENABLED` | `true` | 启用 IMAP IDLE 实时推送（设为 `false` 或 `0` 关闭）|
 | `MAGICMAIL_MAX_CONCURRENT` | `10` | IMAP 最大并发连接数 |
 | `MAGICMAIL_SYNC_BATCH_SIZE` | `50` | 每次同步拉取邮件数量上限 |
+
+### `MAGICMAIL_IDLE_HEARTBEAT` 说明（僵尸 IDLE 兜底）
+
+IDLE 依赖服务器主动推送。但存在一类“僵尸连接”：TCP 连接看起来完全正常（既不报错也不断开），服务器却从不推送新邮件通知。此时客户端无法感知异常，只能干等到 25 分钟的 IDLE 重启窗口。
+
+为覆盖该场景，Worker 在 IDLE 期间会按固定节奏额外主动同步一次，即**心跳兜底**：
+
+- 使用**独立连接**拉取，不中断当前 IDLE 长连接、也不需要重连，代价仅是一次普通的收信往返；
+- 未显式配置时跟随 `MAGICMAIL_POLL_INTERVAL`；
+- 下限 **60 秒**，避免把 IDLE 退化成高频轮询。
+
+同理，若连接被服务端正常关闭（FIN/RST），go-imap 的 `Wait()` 会立即返回，Worker 走“退避 → 重连 → 连续失败 4 次后降级为轮询”流程，不会等到超时。
 
 ## 附件缓存配置（混合模式）
 

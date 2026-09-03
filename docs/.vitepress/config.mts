@@ -117,7 +117,7 @@ export default defineConfig({
             { text: 'Webhook 通知', link: '/guide/webhooks' },
             { text: 'PWA 客户端', link: '/guide/pwa' },
             { text: 'Outlook OAuth2 配置', link: '/guide/oauth2-microsoft' },
-            { text: '特殊邮箱（Gmail / 代理）', link: '/guide/特殊邮箱' },
+            { text: '特殊邮箱（Gmail / 189）', link: '/guide/特殊邮箱' },
           ],
         },
         {
@@ -142,6 +142,7 @@ export default defineConfig({
         { text: '后端开发', link: '/dev/backend' },
         { text: '前端开发', link: '/dev/frontend' },
         { text: '添加 IMAP 功能', link: '/dev/imap-extension' },
+        { text: 'IMAP 诊断工具', link: '/dev/imap-diagnostics' },
         { text: '主题定制', link: '/dev/theming' },
         { text: '发布流程', link: '/dev/release' },
       ],

@@ -322,6 +322,11 @@ func (s *AccountService) SetStatus(id uint, status string, userID uint) error {
 }
 
 // TriggerSync 手动触发指定账号的同步（校验归属用户）
+//
+// 优先走"轻量唤醒"通道：只置标志 + 唤醒通道，让正在运行的 Worker 立刻同步一次，
+// 既不销毁 Worker 也不打断 IDLE 长连接，因此是秒级响应且不会触发重连。
+// 仅当该账号当前没有运行中的 Worker（刚创建、曾被停用、Worker 异常退出）时，
+// 才回退为启动 Worker。
 func (s *AccountService) TriggerSync(id, userID uint) error {
 	pool := imap.GlobalPool()
 	if pool == nil {
@@ -333,6 +338,11 @@ func (s *AccountService) TriggerSync(id, userID uint) error {
 		return err
 	}
 
+	if pool.WakeWorker(id) {
+		return nil
+	}
+
+	// 无运行中的 Worker，回退为启动（重启同样会立即同步一次并推送进度事件）
 	go pool.RestartWorker(&account)
 	return nil
 }

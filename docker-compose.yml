@@ -33,7 +33,8 @@ services:
       # ─── CORS（按需修改域名） ──────────
       # - MAGICMAIL_CORS_ORIGINS=https://mail.example.com
       # ─── IMAP 同步调优 ─────────────────
-      # - MAGICMAIL_POLL_INTERVAL=300
+      # - MAGICMAIL_POLL_INTERVAL=60
+      # - MAGICMAIL_IDLE_HEARTBEAT=60
       # - MAGICMAIL_MAX_CONCURRENT=10
       # ─── 附件缓存（混合模式） ──────────
       # - MAGICMAIL_AUTO_CACHE=false

@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"strings"
 	"time"
 
 	"magicmail/config"
@@ -306,12 +308,39 @@ func (c *IMAPClient) SelectMailbox(name string) (*imap.SelectData, error) {
 }
 
 // Close 关闭连接
+//
+// 连接已失效时（对端断开、IDLE 解析失败后库主动关闭连接）Logout 必然报
+// "use of closed network connection"。这是预期内的次生错误，静默处理，
+// 否则它会紧跟真正的故障日志刷屏，掩盖真实原因、误导排查。
 func (c *IMAPClient) Close() {
-	if c.Client != nil {
-		if err := c.Client.Logout().Wait(); err != nil {
-			log.Printf("⚠️  IMAP 连接关闭异常 (%s): %v", c.Account.Email, err)
+	if c.Client == nil {
+		return
+	}
+	if err := c.Client.Logout().Wait(); err != nil && !isClosedConnErr(err) {
+		log.Printf("⚠️  IMAP 连接关闭异常 (%s): %v", c.Account.Email, err)
+	}
+}
+
+// isClosedConnErr 判断错误是否为"连接早已关闭"这类关闭噪音
+func isClosedConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	msg := err.Error()
+	for _, kw := range []string{
+		"use of closed",
+		"connection closed",
+		"broken pipe",
+		"EOF",
+	} {
+		if strings.Contains(msg, kw) {
+			return true
 		}
 	}
+	return false
 }
 
 // DeleteMessage 通过 UID 删除服务器上的邮件（Store + \Deleted 标志 → Expunge/UID Expunge）
