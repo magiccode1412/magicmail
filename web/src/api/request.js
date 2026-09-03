@@ -21,6 +21,19 @@ export function setRouter(routerInstance) {
   _router = routerInstance
 }
 
+// 飞牛统一网关代答判定。
+// 网关在 NAS 会话失效时会直接返回「HTTP 200 + 纯文本 invalid token」，请求并未到达后端。
+// 必须与后端真正的 401 区分开：此处绝不能清除应用自身的登录态
+//（否则 NAS 一掉线用户就被踢出应用，重新登录飞牛后还要再登一次应用）。
+function isGatewayRejected(response) {
+  const data = response?.data
+  if (typeof data === 'string') return data.trim() === 'invalid token'
+  if (data && typeof data === 'object') {
+    return data.error === 'invalid token' || data.msg === 'invalid token'
+  }
+  return false
+}
+
 function navigateToLogin() {
   if (_router && _router.currentRoute.value.path !== '/login') {
     _router.push('/login')
@@ -32,10 +45,13 @@ function navigateToLogin() {
 }
 
 // 请求拦截器：自动附加 token
+// ⚠️ 必须用自定义头 X-Auth-Token，不能用 Authorization：
+//    飞牛统一网关会占用 Authorization 当成飞牛自己的凭证去校验，失败时网关直接代答
+//    「HTTP 200 + invalid token」，请求到不了后端 —— 表现为未登录正常、登录后全部失效。
 request.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('magicmail-token')
-    if (token) config.headers.Authorization = `Bearer ${token}`
+    if (token) config.headers['X-Auth-Token'] = token
     return config
   },
   (error) => Promise.reject(error)
@@ -44,9 +60,21 @@ request.interceptors.request.use(
 // 响应拦截器：统一错误处理
 request.interceptors.response.use(
   (response) => {
+    // 网关代答：伪装成 200，必须转成错误抛出，避免被当成正常数据消费
+    if (isGatewayRejected(response)) {
+      const err = new Error('飞牛登录状态已失效，请重新登录飞牛后重试')
+      err.isGatewayRejected = true
+      return Promise.reject(err)
+    }
     return response.data
   },
   (error) => {
+    // 网关代答（由成功分支转入）：保留应用 token，仅向上抛错提示
+    if (error?.isGatewayRejected) {
+      console.warn('[API] 飞牛网关拒绝请求（NAS 会话失效）')
+      return Promise.reject(error)
+    }
+
     const { response } = error
 
     if (!response) {

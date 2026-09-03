@@ -21,7 +21,8 @@ func CORS() fiber.Handler {
 	return cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Requested-With",
+		// X-Auth-Token 为业务 JWT 通道（Authorization 被飞牛统一网关占用）
+		AllowHeaders:     "Origin,Content-Type,Accept,Authorization,X-Auth-Token,X-Requested-With",
 		ExposeHeaders:    "Content-Disposition,Content-Length",
 		AllowCredentials: true,
 		MaxAge:           86400, // 24 小时预检缓存

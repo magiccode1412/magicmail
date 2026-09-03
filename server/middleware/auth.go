@@ -13,17 +13,28 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// XAuthTokenHeader 传递 magicmail JWT 的自定义请求头。
+//
+// ⚠️ 严禁使用 Authorization：飞牛统一网关会占用该头并当成飞牛自己的会话/API 凭证校验，
+// 校验失败时网关直接代答「HTTP 200 + 纯文本 invalid token」，请求根本到不了应用的
+// Unix Socket（表现为：未登录时一切正常，登录后所有 API 全部失效）。
+const XAuthTokenHeader = "X-Auth-Token"
+
 // AuthRequired JWT 认证中间件
 func AuthRequired(authService *services.AuthService) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		var tokenStr string
 
-		// 优先从 Authorization header 获取
-		authHeader := c.Get("Authorization")
-		if authHeader != "" {
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-				tokenStr = parts[1]
+		// 优先自定义头：飞牛网关下唯一可用通道
+		tokenStr = c.Get(XAuthTokenHeader)
+
+		// 回退：Authorization: Bearer <jwt>（仅非飞牛部署 / Docker / curl 调试）
+		if tokenStr == "" {
+			if authHeader := c.Get(fiber.HeaderAuthorization); authHeader != "" {
+				parts := strings.SplitN(authHeader, " ", 2)
+				if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+					tokenStr = strings.TrimSpace(parts[1])
+				}
 			}
 		}
 
