@@ -167,6 +167,14 @@ step4_fnpack() {
     echo -e "${BLUE}▶ [Step 4/4] 执行 fnpack build...${NC}"
 
     cd "${FNAPP_DIR}"
+
+    # 打包前必须清理历史 .fpk。
+    # 旧实现用 `for f in *.fpk; do src="$f"; break; done` 取第一个文件，
+    # 但 'magicmail-1.2.0-x86.fpk' 会排在 'magicmail.fpk' 之前（'-' 0x2D < '.' 0x2E），
+    # 于是永远命中上一轮的残留包；又因 src == dst 跳过重命名，结果旧包原封不动，
+    # 新包却以 magicmail.fpk 留在目录里 —— 极易装错包。
+    rm -f ./*.fpk
+
     fnpack build
 
     # fnpack 输出的包名不固定，统一成 名称-版本-架构.fpk

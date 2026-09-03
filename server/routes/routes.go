@@ -27,10 +27,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// Register 注册所有 API 路由
-func Register(app *fiber.App, db *gorm.DB) {
-	cfg := config.Load()
-
+// Register 注册所有 API 路由。
+//
+// cfg 必须传入 main 中已执行过 database.EnsureSecuritySecrets 的那个实例。
+// config.Load() 会把 Security.JWTSecret / EncryptionKey 置为空串（约定由
+// EnsureSecuritySecrets 填充），此处若重新 Load，AuthService 就会用**空密钥**
+// 签发并校验 JWT —— 等价于任何人都能用空密钥伪造任意 user_id 接管账号。
+func Register(app *fiber.App, db *gorm.DB, cfg *config.Config) {
 	// 全局 CORS 中间件
 	app.Use(middleware.CORS())
 
@@ -137,6 +140,12 @@ func registerAppRoutes(app *fiber.App, d routeDeps) {
 	// ============================================================
 	protected := api.Group("")
 	protected.Use(d.authMiddleware)
+
+	// 登录态探活（受保护）：供前端校验本地 token 是否仍有效。
+	// ⚠️ 不能拿公开的 /auth/status 当探活用 —— 它对任何 token 都返回 200。
+	authProtected := protected.Group("/auth")
+	authProtected.Get("/me", d.authHandler.Me)
+
 	// ============================================================
 	//  OAuth2 授权 API（设备码流）
 	// ============================================================
@@ -288,6 +297,17 @@ func serveFrontendOnce(app *fiber.App) {
 			return c.Next() // 未命中静态资源，交给 SPA fallback
 		}
 		c.Type(path.Ext(clean))
+		// index.html / PWA 外壳必须 no-cache：它们引用带 hash 的 assets，
+		// 一旦被引擎缓存，升级后会继续加载旧版 JS（其 Vite base 可能与当前部署不一致）。
+		// 带内容 hash 的 assets 不可变，可长期强缓存。
+		switch {
+		case clean == "index.html", clean == "sw.js",
+			strings.HasSuffix(clean, ".webmanifest"),
+			strings.HasSuffix(clean, ".html"):
+			c.Set(fiber.HeaderCacheControl, "no-cache, must-revalidate")
+		case strings.HasPrefix(clean, "assets/"):
+			c.Set(fiber.HeaderCacheControl, "public, max-age=31536000, immutable")
+		}
 		return c.Send(data)
 	})
 
@@ -451,6 +471,8 @@ func serveFrontend(app *fiber.App) {
 
 // serveIndexHTML 返回 SPA 入口文件（embed.FS 或磁盘 ./dist）。
 func serveIndexHTML(c *fiber.Ctx) error {
+	// SPA 入口决定加载哪一份 assets，绝不能被缓存
+	c.Set(fiber.HeaderCacheControl, "no-cache, must-revalidate")
 	if isEmbedded() {
 		data, err := fs.ReadFile(embedfs.DistFS, "dist/index.html")
 		if err != nil {

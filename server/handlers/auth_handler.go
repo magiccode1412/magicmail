@@ -4,6 +4,8 @@
 package handlers
 
 import (
+	"log"
+
 	"magicmail/middleware"
 	"magicmail/models"
 	"magicmail/services"
@@ -43,8 +45,10 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	// 若当前处于飞牛统一网关环境，则登录后自动将本账号绑定到该飞牛身份（无需用户手动操作）
 	if fnosUID, _, ok := middleware.GatewayIdentity(c); ok && fnosUID != "" {
 		if bindErr := h.service.BindToFnOSIfFree(fnosUID, result.Username); bindErr != nil {
-			// 绑定失败不影响登录本身，仅记录日志
-			c.Locals("fnos_bind_error", bindErr.Error())
+			// 绑定失败不影响登录本身，但必须落日志（写 c.Locals 无人消费 = 静默吞错）
+			log.Printf("⚠️ [fnos] 登录后自动绑定失败: user=%s err=%v", result.Username, bindErr)
+		} else {
+			log.Printf("✅ [fnos] 登录后自动绑定完成: user=%s", result.Username)
 		}
 	}
 
@@ -89,12 +93,37 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	// 若当前处于飞牛统一网关环境，则注册后自动将本账号绑定到该飞牛身份（无需用户手动操作）
 	if fnosUID, _, ok := middleware.GatewayIdentity(c); ok && fnosUID != "" {
 		if bindErr := h.service.BindToFnOSIfFree(fnosUID, result.Username); bindErr != nil {
-			c.Locals("fnos_bind_error", bindErr.Error())
+			log.Printf("⚠️ [fnos] 注册后自动绑定失败: user=%s err=%v", result.Username, bindErr)
+		} else {
+			log.Printf("✅ [fnos] 注册后自动绑定完成: user=%s", result.Username)
 		}
 	}
 
 	c.Status(201)
 	return c.JSON(result)
+}
+
+// Me 返回当前登录用户（受 AuthRequired 保护）。
+//
+// 前端必须用它做「本地 token 探活」：/auth/status 是公开接口，对任何 token
+// 都返回 200，用它探活会让失效 token 永不自愈（表现为登录后所有数据请求 401）。
+// user_id 取自 AuthRequired 写入的 Locals（源自已验签的 JWT），不信任任何客户端参数。
+func (h *AuthHandler) Me(c *fiber.Ctx) error {
+	userID, ok := c.Locals("user_id").(float64)
+	if !ok {
+		return c.Status(401).JSON(fiber.Map{"error": "认证令牌无效或已过期"})
+	}
+	// 以数据库为权威来源，避免返回已被降权/注销账号的陈旧信息
+	user, err := h.service.GetUserByID(uint(userID))
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"error": "账号已被注销，请重新登录"})
+	}
+	return c.JSON(models.UserResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		Role:      user.Role,
+		CreatedAt: user.CreatedAt,
+	})
 }
 
 // Status 查询认证状态（是否需要初始化）

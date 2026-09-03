@@ -3,7 +3,7 @@
 
 import { precacheAndRoute } from 'workbox-precaching'
 import { registerRoute } from 'workbox-routing'
-import { StaleWhileRevalidate, CacheFirst } from 'workbox-strategies'
+import { CacheFirst } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 
 // --- 预缓存声明（由 vite-plugin-pwa injectManifest 注入） ---
@@ -72,17 +72,11 @@ self.addEventListener('notificationclick', (event) => {
 })
 
 // --- 运行时缓存策略 ---
-
-// API 缓存（排除 SSE 流）
-registerRoute(
-  ({ url }) => url.pathname.startsWith(import.meta.env.BASE_URL + 'api') && !url.pathname.includes('/mails/stream'),
-  new StaleWhileRevalidate({
-    cacheName: 'api-cache',
-    plugins: [
-      new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 5 * 60 }),
-    ],
-  })
-)
+//
+// ⚠️ API 一律不进运行时缓存：
+//  1. Cache API 以 URL 为键，不区分 Authorization，登录态切换后会串号返回他人数据；
+//  2. StaleWhileRevalidate 会先吐旧值，前端表现为「数据刷不出来/回退到旧账号」。
+// 如需离线能力，应显式按用户维度分 cacheName，并在 logout 时清空。
 
 // 图片缓存
 registerRoute(

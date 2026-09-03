@@ -21,15 +21,15 @@ export const useAuthStore = defineStore('auth', () => {
   const isAdmin = computed(() => role.value === 'admin')
 
   async function init() {
-    // 1) 若有 token，先校验有效性（清库/过期等场景）
+    // 1) 若有 token，用受保护接口探活（清库 / 过期 / 密钥轮换等场景）
+    //    ⚠️ 不能用 getAuthStatus()：/auth/status 是公开接口，对任何 token 都返回 200，
+    //    失效 token 会因此永不自愈 —— 表现为「已登录但所有数据请求 401」。
     if (token.value) {
       try {
-        const res = await authApi.getAuthStatus()
-        // token 有效，更新用户名与角色
-        const payload = parseTokenPayload(token.value)
-        username.value = payload.username || ''
-        role.value = payload.role || ''
-        openRegistration.value = !!res.open_registration
+        const me = await authApi.getMe()
+        // token 有效，以服务端返回的权威身份为准
+        username.value = me.username || ''
+        role.value = me.role || ''
       } catch (_) {
         // token 无效（401 / 后端已重置等），清除并标记需要重新登录
         logout()

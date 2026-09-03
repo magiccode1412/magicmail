@@ -115,7 +115,9 @@ func main() {
 	}))
 
 	// 注册 API 路由
-	routes.Register(app, db)
+	// ⚠️ 必须传已完成 EnsureSecuritySecrets 的 cfg：routes.Register 内部若重新
+	// config.Load()，会拿到空的 JWT 密钥并以空密钥签发/校验 token。
+	routes.Register(app, db, cfg)
 
 	// 启动 IMAP 后台 Worker（所有活跃账号）
 	go imap.StartWorkers(db, cfg)

@@ -3,9 +3,14 @@
 
 import request from './request'
 
-/** 查询认证状态（是否需要注册） */
+/** 查询认证状态（是否需要注册）。公开接口，不校验 token，不可用于探活 */
 export function getAuthStatus() {
   return request.get('/auth/status')
+}
+
+/** 登录态探活：当前用户（受保护）。401 即代表本地 token 已失效 */
+export function getMe() {
+  return request.get('/auth/me')
 }
 
 /** 登录 */
