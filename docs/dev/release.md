@@ -16,6 +16,8 @@
 
 代码仓库的主副本在 **cnb**（`origin` 指向 `cnb.cool`），GitHub 是由 cnb 单向同步出去的镜像。所有开发和打 tag 都在 cnb 侧进行。
 
+打 tag 后**两个平台各自独立发版**，互不依赖：cnb 由 `.cnb/release.yml` 发布 Release，GitHub 由 `release.yml`（Actions）发布。任一侧流水线挂了，另一侧的版本产物仍然完整。
+
 ## 版本号管理
 
 版本号散落在四处，发布前必须保持一致：
@@ -96,7 +98,10 @@ git tag -a v1.2.0-rc.1 -m "release: v1.2.0-rc.1"
 git push origin v1.2.0-rc.1
 ```
 
-推送后 cnb 的 `tag_push` 流水线会把 tag 同步到 GitHub，GitHub Actions 随即开始构建（约 1 分钟开始，Release 约 5 分钟完成，Docker 多架构约 20 分钟）。
+推送后 cnb 的 `tag_push` 事件会并行触发两条流水线：
+
+1. `.cnb/release.yml` —— 构建并发布 **cnb Release**（约 10 分钟，产物 8 个）
+2. `.cnb.yml` 的 `sync_tag_to_github` —— 把 tag 同步到 GitHub，GitHub Actions 随即开始构建（约 1 分钟开始，Release 约 5 分钟完成，Docker 多架构约 20 分钟）
 
 版本号带 `-` 后缀会被自动标记为 **Pre-release**，不会进入 Latest，也不会产生 Docker 浮动标签。
 
@@ -138,7 +143,7 @@ git push origin dev
 
 ### tag 必须打在 `main` 上
 
-`release.yml` 的 `guard` job 和 `docker-publish.yml` 的「校验 tag 位置」步骤会用 `git merge-base --is-ancestor HEAD origin/main` 强制校验，**打在 `dev` 上会直接红叉**。
+三处会用 `git merge-base --is-ancestor HEAD origin/main` 强制校验，**打在 `dev` 上会直接红叉**：`release.yml` 的 `guard` job、`docker-publish.yml` 的「校验 tag 位置」步骤、以及 cnb 侧的 `scripts/release-guard.sh`。
 
 原因：rc 的语义是「功能冻结、只收稳定性修复的候选版本」。`dev` 的定义是持续合入，在 `dev` 上打 rc 等于宣布「当前这个随时在变的状态就是发布候选」，测试者拿不到可复现的锚点，也说不清 rc.2 相对 rc.1 到底改了什么。
 
@@ -160,6 +165,36 @@ cnb 打 tag ──► cnb tag_push 流水线 ──► GitHub 收到 tag ──�
 
 > **cnb 分支配置的覆盖语义（重要）**：一旦为某个分支单独配置了 `push`，`$` 兜底分支下的 `push` 就**不再**对该分支生效。
 > `dev` 已经单独配置了 `push`（同步 + 构建校验），所以任何与 `dev` 推送相关的流水线都必须写在 `dev:` 下，写在 `$:` 下不会执行 —— 曾经因此导致 `dev` 的改动不再同步到 GitHub。
+
+### 双平台各自发版
+
+tag 到达两个平台后，两侧**各自**完成「构建 → Release → 上传产物」，没有产物互传：
+
+| 平台 | 流水线 | Release 产物 |
+|------|--------|--------------|
+| cnb | `.cnb/release.yml`（`$.tag_push`） | `git:release` 建 Release，`cnbcool/attachments` 上传附件 |
+| GitHub | `.github/workflows/release.yml`（`tags: v*`） | `softprops/action-gh-release` 一步完成 |
+
+所以上传下载渠道有两条，任一平台故障都不影响另一平台的可用性。
+
+cnb 侧与 GitHub 侧的几个实现差异，都是平台能力不同导致的：
+
+| 点 | GitHub | cnb |
+|----|--------|-----|
+| 发布与上传附件 | 一个 action 搞定 | `git:release` **不支持上传附件**，必须再配一个 `cnbcool/attachments` 任务，且顺序不能反（先建 Release 再传附件） |
+| 非发版 tag | `tags: ['v*']` 在事件层就过滤掉 | 事件无法按 tag 名过滤，改由 `scripts/release-guard.sh` 用退出码 **78** 结束（任务成功但中断流水线），不会显示成失败 |
+| 预发布标记 | `prerelease: ${{ contains(version, '-') }}` 表达式 | `preRelease` 只接受布尔字面量，变量替换会被判成字符串，因此拆成两个 stage 用 `if` 二选一 |
+| 并行构建 | job matrix（跨机器） | 同流水线内用 `jobs` 对象并行，共享工作区；`go:embed` 目录会互相覆盖，所以每个平台先 `cp -r server` 出独立副本 |
+
+配套脚本都在 `scripts/` 下，前缀 `release-*`，与 `verify-build.sh` 用同一份构建环境（`.ci/Dockerfile`）：
+
+| 脚本 | 作用 |
+|------|------|
+| `release-guard.sh` | 校验版本号规范 + tag 必须在 `main` 上；输出 `version` / `prerelease` / `latest` |
+| `release-frontend.sh` | 构建两遍前端：默认 base → `build/web-default`，网关 base → `build/web-gateway` |
+| `release-binary.sh` | 交叉编译单个平台（并行 job 调用） |
+| `release-fpk.sh` | 打包单个架构的 FPK（并行 job 调用） |
+| `release-notes.sh` | 生成 Release 正文 → `release-notes.md` |
 
 ### dev 分支持续构建校验
 
@@ -198,6 +233,15 @@ bash scripts/verify-build.sh
 
 ## 验收清单
 
+> GitHub 与 cnb 的 Release **都要看**。产物是两个平台各自构建的，一边成功不代表另一边也成功了。
+
+### cnb Release
+
+- [ ] `tag_push` 流水线 `release` 成功（非 `v*` tag 会显示「跳过」而非失败）
+- [ ] 标记正确：正式版进入 Latest，rc 标记为预发布
+- [ ] 附件 8 个：6 个平台二进制 + `magicmail-<版本>-x86.fpk` + `magicmail-<版本>-arm64.fpk`
+- [ ] 正文包含完整的「安全 / 重构 / 新增 / 修复」分段，而不是 `- 本次无详细变更记录`
+
 ### GitHub Release
 
 - [ ] 标记正确：正式版 `prerelease = false`，rc 为 `true`
@@ -218,7 +262,11 @@ bash scripts/verify-build.sh
 ## 常见问题
 
 **打了 tag，GitHub Actions 没触发**
-去 cnb 看 `tag_push` 流水线。未生效时向 `main` 推一个提交触发全量同步。
+去 cnb 看 `tag_push` 的 `sync_tag_to_github` 流水线。未生效时向 `main` 推一个提交触发全量同步。
+
+**cnb 的 `release` 流水线显示跳过/没跑**
+非 `v*` 形式的 tag（如 `test-1`）会被 `release-guard.sh` 以退出码 78 结束，这是预期行为，不会标红。
+如果 `v*` tag 也没跑，检查 `.cnb.yml` 顶部的 `include: - .cnb/release.yml` 是否还在 —— `tag_push` 只能挂在 `$` 兜底分支下，写在具体分支名下不会触发。
 
 **Release 正文只有一条「本次无详细变更记录」**
 `docs/guide/changelog.md` 里缺少 `## [vX.Y.Z]` 条目，或标题格式不匹配（必须是 `## [v1.2.0]` 这种方括号包裹、带 `v` 前缀的写法）。

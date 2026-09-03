@@ -1,0 +1,117 @@
+# ============================================================================
+# 发版流水线：推送 v* tag 时，构建全平台产物并发布到 CNB Release
+#
+# 与 .github/workflows/release.yml 的关系：
+#   两个平台各自独立发版，互不依赖。tag 推到 CNB 后，
+#   1. 本文件负责 CNB 侧的 Release 与产物附件；
+#   2. .cnb.yml 的 tag_push → git-sync 把 tag 同步到 GitHub，
+#      由 GitHub Actions 的 release.yml 负责 GitHub 侧的 Release。
+#   这样任一侧的流水线挂了，另一侧的版本产物仍然完整。
+#
+# 产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64
+#        + 飞牛 fnOS 的 FPK 包（x86 与 ARM64 各一个）
+#
+# 分支约定：main 承担 release branch 角色，预发布与正式版的 tag 都必须打在
+#           main 上，由 scripts/release-guard.sh 用 git merge-base 强制校验。
+# ============================================================================
+
+$:
+  tag_push:
+    - name: release
+      # fnpack 目前只有 linux-amd64 版本，固定调度到 amd64 节点
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 8
+      # 复用 dev 分支构建校验的环境镜像：Node 22 + pnpm 10 + Go 1.25 + fnpack + file
+      docker:
+        build: .ci/Dockerfile
+      env:
+        # 飞牛统一网关前缀，必须与 fnapp/manifest 的 gatewayPrefix 一致
+        GATEWAY_BASE: /app/magicmail
+      stages:
+        # -- 1. 入口校验 -----------------------------------------------------
+        # 非 v* tag 会以退出码 78 结束：任务成功但中断流水线，不会显示成失败
+        - name: 发布入口校验
+          script: bash ./scripts/release-guard.sh
+          exports:
+            version: APP_VERSION
+            prerelease: IS_PRERELEASE
+            latest: IS_LATEST
+
+        # -- 2. 前端 ---------------------------------------------------------
+        # 构建两遍（默认 base / 网关 base），分别给普通二进制和 FPK 用
+        - name: 构建前端
+          script: bash ./scripts/release-frontend.sh
+
+        # -- 3. 交叉编译 -----------------------------------------------------
+        # 6 个平台并行，各自用独立的源码副本，避免 go:embed 目录互相覆盖
+        - name: 交叉编译
+          jobs:
+            linux-amd64:
+              script: bash ./scripts/release-binary.sh linux amd64 7 magicmail
+            linux-arm:
+              script: bash ./scripts/release-binary.sh linux arm 7 magicmail-arm
+            linux-arm64:
+              script: bash ./scripts/release-binary.sh linux arm64 7 magicmail-arm64
+            darwin-amd64:
+              script: bash ./scripts/release-binary.sh darwin amd64 7 magicmail-macos-x86_64
+            darwin-arm64:
+              script: bash ./scripts/release-binary.sh darwin arm64 7 magicmail-macos-arm64
+            windows-amd64:
+              script: bash ./scripts/release-binary.sh windows amd64 7 magicmail.exe
+
+        # -- 4. 飞牛 FPK -----------------------------------------------------
+        - name: 构建飞牛 FPK
+          jobs:
+            x86:
+              script: bash ./scripts/release-fpk.sh x86 amd64 x86
+            arm64:
+              script: bash ./scripts/release-fpk.sh arm64 arm64 arm
+
+        # -- 5. 产物清单（调试用）--------------------------------------------
+        - name: 查看产物
+          script: ls -lh dist/
+
+        # -- 6. 发布 ---------------------------------------------------------
+        # git:release 不支持上传附件，产物由下面的 attachments 插件单独上传，
+        # 因此顺序必须是先建 Release，再传附件。
+        - name: 生成 Release 正文
+          script: bash ./scripts/release-notes.sh
+
+        # preRelease 只接受布尔字面量（变量替换会被判为字符串），
+        # 预发布与正式版拆成两个 stage 用 if 二选一。
+        - name: 创建正式版 Release
+          if: '[ "$IS_PRERELEASE" = "false" ]'
+          type: git:release
+          options:
+            title: Magicmail ${APP_VERSION}
+            descriptionFromFile: release-notes.md
+            latest: true
+
+        # 版本号带 - 后缀（v1.2.0-rc.1）走这里，标记预发布且不进 Latest
+        - name: 创建预发布 Release
+          if: '[ "$IS_PRERELEASE" = "true" ]'
+          type: git:release
+          options:
+            title: Magicmail ${APP_VERSION}
+            descriptionFromFile: release-notes.md
+            preRelease: true
+            latest: false
+
+        - name: 上传产物到 Release
+          image: cnbcool/attachments
+          settings:
+            tag: ${APP_VERSION}
+            attachments:
+              - ./dist/magicmail
+              - ./dist/magicmail-arm
+              - ./dist/magicmail-arm64
+              - ./dist/magicmail-macos-x86_64
+              - ./dist/magicmail-macos-arm64
+              - ./dist/magicmail.exe
+              - ./dist/*.fpk
+
+      endStages:
+        # 中间目录（源码副本、前端副本）不影响最终状态，成功失败都清掉
+        - name: 清理构建中间产物
+          script: rm -rf build

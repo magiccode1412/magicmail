@@ -12,6 +12,11 @@ server/mail-proxy
 server/mail-proxy.exe
 server/dist
 
+# 发版流水线中间产物（scripts/release-*.sh 产出，流水线结束即清理）
+/build/
+/dist/
+/release-notes.md
+
 /bin/
 
 # Data (SQLite DB, attachments)

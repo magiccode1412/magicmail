@@ -1,3 +1,8 @@
+# 发版流水线（tag_push → 构建 + CNB Release）单独拆文件，
+# 与下面的同步流水线按事件合并：$.tag_push 数组会追加，互不影响。
+include:
+  - .cnb/release.yml
+
 $:
   vscode:
     - docker:
