@@ -255,10 +255,30 @@ cnb 侧与 GitHub 侧的几个实现差异，都是平台能力不同导致的�
 | 脚本 | 作用 |
 |------|------|
 | `release-guard.sh` | 校验版本号规范 + tag 必须在 `main` 上；输出 `version` / `prerelease` / `latest` |
+| `rebuild-guard.sh` | 手动重建（按钮）入口校验：版本号必须已有同名 tag + 当前 HEAD 在 `main`；输出 `version` / `prerelease` / `latest` |
 | `release-frontend.sh` | 构建两遍前端：默认 base → `build/web-default`，网关 base → `build/web-gateway` |
 | `release-binary.sh` | 交叉编译单个平台（并行 job 调用） |
 | `release-fpk.sh` | 打包单个架构的 FPK（并行 job 调用） |
 | `release-notes.sh` | 生成 Release 正文 → `release-notes.md` |
+
+### 不升版本号重建产物
+
+版本刚发布就发现产物有问题，`main` 上补了修复提交，但**不想升版本号**时，按原版本号重新构建并覆盖同名 Release：
+
+| 平台 | 操作 |
+|------|------|
+| cnb | `main` 分支详情页 → 自定义按钮 → **重建最新版本** → 版本号留空（取 `version.json` 的 `latest`），也可手工填 `v1.2.0` |
+| GitHub | Actions → Build & Release → Run workflow → 填同一个版本号 |
+
+两侧**没有联动**：cnb 的按钮只重建 cnb 的产物，GitHub 侧要另外手动重跑。只做一边会出现两个平台产物不一致（用户下载渠道主要在 GitHub，见[双平台各自发版](#双平台各自发版)）。
+
+cnb 侧是 `.cnb/release.yml` 的 `web_trigger_rebuild_release` 流水线，与 `tag_push` 共用同一套构建 stage，差别只在入口校验和 Release 的创建方式：
+
+- 版本号来自按钮输入或 `version.json`，`git:release` 必须显式传 `tag`（`tag_push` 下自动取当前 tag）
+- Release 已存在，用 `overlying: false`（默认，先删后建）覆盖，旧附件随 Release 一起清掉，不会同名堆积
+- 入口校验 `scripts/rebuild-guard.sh`：版本号必须已有同名 tag（不能凭空建版本）、当前 HEAD 必须在 `main` 上；重建的不是 `version.json` 里的 `latest` 时，不会抢 Latest 标记
+
+按钮只在 `main` 分支显示（`.cnb/web_trigger.yml` 的 `reg: ^main$`），和[tag 必须打在 `main` 上](#tag-必须打在-main-上)是同一条约束。
 
 ### dev 分支持续构建校验
 
@@ -331,6 +351,9 @@ bash scripts/verify-build.sh
 **cnb 的 `release` 流水线显示跳过/没跑**
 非 `v*` 形式的 tag（如 `test-1`）会被 `release-guard.sh` 以退出码 78 结束，这是预期行为，不会标红。
 如果 `v*` tag 也没跑，检查 `.cnb.yml` 顶部的 `include: - .cnb/release.yml` 是否还在 —— `tag_push` 只能挂在 `$` 兜底分支下，写在具体分支名下不会触发。
+
+**想重发同一个版本号的产物，又不想升版本号**
+在 cnb 的 `main` 分支详情页点「重建最新版本」按钮，GitHub 侧在 Actions 手动重跑 Build & Release。两侧都要做，否则产物不一致。详见[不升版本号重建产物](#不升版本号重建产物)。
 
 **Release 正文只有一条「本次无详细变更记录」**
 `docs/guide/changelog.md` 里缺少 `## [vX.Y.Z]` 条目，或标题格式不匹配（必须是 `## [v1.2.0]` 这种方括号包裹、带 `v` 前缀的写法）。

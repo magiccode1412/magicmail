@@ -9,4 +9,16 @@ branch:
       - name: sync_from_github
         description: 同步github仓库dev分支
         event: web_trigger_sync_from_github
-      
+
+  # 只在 main（发布冻结分支）显示：重建产物必须来自已冻结的发布代码
+  - reg: ^main$
+    buttons:
+      - name: 重建最新版本
+        description: 用 main 当前代码重新构建产物并覆盖已有 Release（不升版本号）
+        event: web_trigger_rebuild_release
+        inputs:
+          REBUILD_VERSION:
+            name: 版本号
+            description: 留空则取 version.json 的 latest，即当前最新版本
+            placeholder: v1.3.0
+            type: input
