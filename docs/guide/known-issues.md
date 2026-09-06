@@ -5,6 +5,54 @@
 
 ## 问题列表
 
+### 点击「立即同步」无反应，终端日志完全静默
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-09-06
+- **问题描述**：添加企业微信邮箱（腾讯企业邮）后点击「立即同步」，接口返回 `200`，但此后终端不再输出任何日志，前端一直停留在同步中。典型日志片段：
+
+  ```
+  2026/09/06 13:15:34 /workspace/server/services/account_service.go:337
+  [0.180ms] [rows:1] SELECT * FROM `mail_accounts` WHERE user_id = 1 AND `mail_accounts`.`id` = 1 ...
+  13:15:34 | 200 |     647.375µs | 127.0.0.1 | POST | /api/v1/accounts/1/sync | -
+  ```
+
+- **排查过程**（两个关键判据）：
+  1. 请求仅耗时 **647µs** 就返回 200 —— 说明 `AccountService.TriggerSync` 只是投递了一个唤醒信号便返回，同步在后台异步执行，接口本身没有阻塞，符合预期；
+  2. 此后**一条 SQL 都没有** —— 而 `syncOnce()` 的第一步就是 `db.First(&fresh, account.ID)`（必然产生一条 GORM 日志）。没有这条日志 ⇒ `syncOnce` 根本没被调用 ⇒ **Worker 当时不在任何监听 `wakeCh` 的 select 上**。
+
+  由此把范围从「同步逻辑有问题」缩小到「唤醒信号没送达 / 送达了但 Worker 正在阻塞 IO 中」。
+- **根因分析**（三种可能，前两种与协议无关）：
+  1. **Worker 正卡在一次同步里**（最常见）：`syncOnce` 全程没有任何日志，而企业邮邮箱邮件量大时，`fetcher.syncMailbox` 会先 FETCH 全部 envelope，再对**每封**新邮件单独 FETCH 正文与附件，首次全量同步可持续数十分钟。期间手动同步信号只能在缓冲为 1 的 `wakeCh` 中排队，等本轮结束后才执行，且界面无任何进度反馈；
+  2. **Worker 已退出但仍残留在 Worker 表中**：`Run()` 返回后 `WorkerPool.workers` 不会自动清理该项，`WakeWorker` 只判断「表中是否存在」便返回 `true`，`Wake()` 投递的信号进入**无人消费**的通道 —— 表现为永久无响应、零日志；
+  3. **POP3 账号被服务端吊住**：`pop3` 客户端此前完全没有超时（`net.Dial` 无 `Timeout`、`textproto` 读取无 deadline），服务端建立 TCP 后不响应时读取会永久阻塞，Worker 卡死在 `syncOnce` 内既不报错也不退出。
+- **修复方案**：
+  1. **唤醒可靠性**：`AccountWorker` 新增 `doneCh`，`Run()` 返回时关闭；`WakeWorker` 投递前先做存活判定，识别到已退出的 Worker 即从表中移除并返回 `false`，让 `TriggerSync` 回退为 `RestartWorker`（原来只能干等）；
+  2. **唤醒可观测**：`Run()` 主循环中三个唤醒分支（IDLE / 轮询 / IDLE 退避）全部补日志 `🔔 收到手动同步请求`，`TriggerSync` 区分两条路径输出 `🔔 已唤醒 Worker 执行同步` 与 `🔔 账号无运行中的 Worker，回退为重启同步`。**该日志是否出现，是判断信号有没有送达 Worker 的分水岭**；
+  3. **同步过程可观测**：`syncOnce` 增加 `🔄 开始同步` / `🏁 同步结束（含耗时）`；`fetcher` 的 FETCH 循环每 50 封输出 `⏳ 同步进度 (邮箱): 已扫描 x/y 封，新增 z 封`，大邮箱首次同步不再像卡死；
+  4. **停止信号不再丢失**：`stopCh` 由无缓冲改为缓冲 1。原实现是无缓冲通道 + 非阻塞发送，Worker 正忙（如正在 `syncOnce`）时停止信号会被 `default` 分支直接丢弃，导致重启后新旧两个 Worker 并存、竞态同步；
+  5. **POP3 全链路超时**：建连与 TLS 握手 30s、普通命令 60s、`LIST` 全量列表 2min、单封邮件下载 5min，任何挂起都会在可预期时间内变成一条明确的错误日志。顺带将 `fmt.Sprintf("%s:%d", host, port)` 改为 `net.JoinHostPort()`，修复 IPv6 主机下地址非法的问题。
+- **涉及文件**：
+  - `server/imap/worker.go` — `doneCh` 存活判定与表项清理、唤醒日志、`syncOnce` 起止日志、`stopCh` 缓冲
+  - `server/imap/fetcher.go` — FETCH 循环进度日志
+  - `server/pop3/client.go` — 建连/命令/下载超时、IPv6 地址拼接
+  - `server/services/account_service.go` — `TriggerSync` 唤醒/重启路径日志
+- **复现验证**：重新编译后点击同步，正常应依次出现：
+
+  ```
+  🔔 已唤醒 Worker 执行同步: xxx@xx (account_id=1)
+  🔔 收到手动同步请求: xxx@xx
+  🔄 开始同步 (xxx@xx) [手动触发]
+  ⏳ 同步进度 (xxx@xx): 已扫描 50/832 封，新增 12 封
+  🏁 同步结束 (xxx@xx) [手动触发]: 耗时 3m12s
+  ```
+
+  判定方式：
+  - 只有第一行 ⇒ Worker 卡住或已死；再看 `🔄 开始同步` 与 `🏁 同步结束` 是否成对 —— 有开始无结束即卡在连接/认证/拉取某一步；
+  - 出现 `♻️ 检测到已退出的 Worker，已从表中移除` ⇒ 命中根因 2，现已自动重启恢复；
+  - 停在 `📬 开始同步 xxx: 模式=..., 收件箱共 N 封邮件` ⇒ 命中根因 1，属正常的首次全量同步（之后为增量），等进度日志推进即可。
+- **附注**：IMAP 路径下 `go-imap/v2` 自带命令级读超时（普通响应 30s、`literal` 5min、`IDLE` 期间为 0），因此不会永久挂起；POP3 无此保护，是本次补超时的重点。
+
 ### 189.cn 等邮箱历史邮件无法通过 IMAP 收取（服务商限制）
 
 - **状态**：🚫 服务商限制，客户端无解

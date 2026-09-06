@@ -28,6 +28,9 @@ import (
 	"github.com/emersion/go-message/mail"
 )
 
+// fetchProgressStep 全量同步时每隔多少封输出一次进度日志
+const fetchProgressStep = 50
+
 // Fetcher 邮件拉取器 - 负责从 IMAP 服务器拉取邮件并解析存储
 type Fetcher struct {
 	db            *gorm.DB
@@ -92,10 +95,19 @@ func (f *Fetcher) syncMailbox(client *IMAPClient, mailboxName, folder string) (i
 	log.Printf("📬 开始同步 %s: 模式=%s, 天数=%d, 收件箱共 %d 封邮件",
 		client.Account.Email, syncMode, syncDays, mbox.NumMessages)
 
+	processed := 0
 	for {
 		msg := fetchCmd.Next()
 		if msg == nil {
 			break
+		}
+		processed++
+
+		// 进度日志：全量同步（尤其大邮箱首次同步）逐封拉取正文耗时可达数十分钟，
+		// 无进度输出会让人误以为卡死。此处按固定步长汇报扫描进度。
+		if processed%fetchProgressStep == 0 {
+			log.Printf("⏳ 同步进度 (%s): 已扫描 %d/%d 封，新增 %d 封",
+				client.Account.Email, processed, mbox.NumMessages, newCount)
 		}
 
 		// 使用 Collect() 获取完整消息数据（包含 Flags、InternalDate 等字段）

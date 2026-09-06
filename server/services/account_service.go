@@ -5,6 +5,8 @@ package services
 
 import (
 	"fmt"
+	"log"
+
 	"magicmail/config"
 	"magicmail/crypto"
 	"magicmail/imap"
@@ -338,11 +340,15 @@ func (s *AccountService) TriggerSync(id, userID uint) error {
 		return err
 	}
 
+	// 日志必须保留：用户点击"立即同步"后若无任何输出，
+	// 靠这两行即可区分"唤醒了正在运行的 Worker"还是"重启了 Worker"。
 	if pool.WakeWorker(id) {
+		log.Printf("🔔 已唤醒 Worker 执行同步: %s (account_id=%d)", account.Email, id)
 		return nil
 	}
 
 	// 无运行中的 Worker，回退为启动（重启同样会立即同步一次并推送进度事件）
+	log.Printf("🔔 账号无运行中的 Worker，回退为重启同步: %s (account_id=%d)", account.Email, id)
 	go pool.RestartWorker(&account)
 	return nil
 }

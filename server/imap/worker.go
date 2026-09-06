@@ -252,6 +252,20 @@ func (p *WorkerPool) WakeWorker(accountID uint) bool {
 	if !ok || w == nil {
 		return false
 	}
+
+	// ⚠️ 关键：表中存在 ≠ 协程还活着。Run 返回后表项不会被自动清理，
+	// 此时 Wake() 投递的信号永远无人消费，用户点击"立即同步"表现为彻底无响应、日志也一片安静。
+	// 这里先做存活判定，失效则清理表项并返回 false，让调用方回退为重启 Worker。
+	if w.IsDone() {
+		p.mu.Lock()
+		if cur, exists := p.workers[accountID]; exists && cur == w {
+			delete(p.workers, accountID)
+		}
+		p.mu.Unlock()
+		log.Printf("♻️  检测到已退出的 Worker，已从表中移除（将重启）: account_id=%d", accountID)
+		return false
+	}
+
 	w.Wake()
 	return true
 }
@@ -263,8 +277,9 @@ type AccountWorker struct {
 	config          *config.Config
 	sem             chan struct{}
 	shutdownCh      chan struct{}
-	stopCh          chan struct{} // 该 Worker 的独立停止通道
+	stopCh          chan struct{} // 该 Worker 的独立停止通道（缓冲 1：Stop 时若 Worker 正忙也不会丢信号）
 	wakeCh          chan struct{} // 手动同步唤醒通道（缓冲 1：用户连点只会合并为一次，不会堆积）
+	doneCh          chan struct{} // Run 返回时关闭，供 WakeWorker 判断该 Worker 是否还活着
 	idleUnsupported bool          // 标记该账号是否不支持IDLE（避免重复尝试）
 	idleFailures    int           // 连续 IDLE 失败次数（仅由 Worker 自身协程读写，无需加锁）
 	manualSync      atomic.Bool   // 标记本次同步是否由用户手动触发（用于推送同步进度事件）
@@ -280,8 +295,9 @@ func NewAccountWorker(account *models.MailAccount, db *gorm.DB, cfg *config.Conf
 		config:     cfg,
 		sem:        sem,
 		shutdownCh: shutdownCh,
-		stopCh:     make(chan struct{}),
+		stopCh:     make(chan struct{}, 1),
 		wakeCh:     make(chan struct{}, 1),
+		doneCh:     make(chan struct{}),
 	}
 	
 	// 策略：默认尝试 IDLE，除非该服务器已知不可用（静态黑名单 + 运行时学习）
@@ -300,6 +316,9 @@ func NewAccountWorker(account *models.MailAccount, db *gorm.DB, cfg *config.Conf
 
 // Run 启动 Worker 主循环：先做一次全量同步，然后进入 IDLE（仅 IMAP）或轮询模式
 func (w *AccountWorker) Run() {
+	// 关闭 doneCh 标记本 Worker 生命周期结束：
+	// 否则 WakeWorker 会向一个已退出的 Worker 投递唤醒信号，用户点击"立即同步"将永远无响应。
+	defer close(w.doneCh)
 	defer log.Printf("⏹️  Worker 退出: %s", w.account.Email)
 
 	ticker := time.NewTicker(time.Duration(w.config.IMAP.PollInterval) * time.Second)
@@ -317,11 +336,16 @@ func (w *AccountWorker) Run() {
 			return
 		case <-ticker.C:
 			// 定时轮询同步（非 IDLE 模式下主要由该分支驱动）
+			log.Printf("⏱️  定时同步触发: %s", w.account.Email)
 			w.setMode("syncing")
 			w.syncOnce()
 
 		case <-w.wakeCh:
 			// 用户点击"立即同步"：无需等待下一个 tick，立即执行
+			// ⚠️ 日志必须保留：若本行都不出现，说明唤醒信号根本没送达 Worker
+			// （Worker 卡在 syncOnce/idleLoop 的阻塞 IO 中，或 Worker 已退出），
+			// 这是"点了同步没反应"时最关键的定位依据。
+			log.Printf("🔔 收到手动同步请求: %s", w.account.Email)
 			w.setMode("syncing")
 			w.syncOnce()
 
@@ -372,6 +396,7 @@ func (w *AccountWorker) Run() {
 				case <-time.After(backoff):
 				case <-w.wakeCh:
 					// 手动同步可以打断退避等待，不必干等到退避结束
+					log.Printf("🔔 收到手动同步请求（打断 IDLE 退避）: %s", w.account.Email)
 					w.setMode("syncing")
 					w.syncOnce()
 				case <-w.stopCh:
@@ -388,6 +413,7 @@ func (w *AccountWorker) Run() {
 					w.syncOnce()
 				case <-w.wakeCh:
 					// 手动同步：轮询模式下同样立即生效，无需等待下一个 tick
+					log.Printf("🔔 收到手动同步请求（轮询模式）: %s", w.account.Email)
 					w.setMode("syncing")
 					w.syncOnce()
 				case <-w.stopCh:
@@ -439,6 +465,18 @@ func (w *AccountWorker) syncOnce() {
 		}
 	}
 	defer func() { <-w.sem }()
+
+	start := time.Now()
+	// 同步期间（连服务器、认证、逐封拉邮件）此前没有任何日志，一旦某一步被服务器"吊住"，
+	// 终端就完全是静默的，看起来像"点了没反应"。这里给出起止日志 + 耗时，便于定位卡在哪一步。
+	manualTag := ""
+	if wasManual {
+		manualTag = " [手动触发]"
+	}
+	log.Printf("🔄 开始同步 (%s)%s", w.account.Email, manualTag)
+	defer func() {
+		log.Printf("🏁 同步结束 (%s)%s: 耗时 %v", w.account.Email, manualTag, time.Since(start))
+	}()
 
 	// 重新从数据库获取最新账号信息（密码可能被更新）
 	var fresh models.MailAccount
@@ -899,6 +937,22 @@ func (w *AccountWorker) Wake() {
 	case w.wakeCh <- struct{}{}:
 	default:
 		// 已有待处理的唤醒信号，本次请求直接复用
+	}
+}
+
+// IsDone 判断 Worker 主协程是否已退出（Run 已返回）。
+//
+// 用途：Worker 退出后 workers 表中仍可能保留它的引用，
+// 直接 Wake 会让信号永远无人消费；调用方据此决定清理表项并重启。
+func (w *AccountWorker) IsDone() bool {
+	if w == nil {
+		return true
+	}
+	select {
+	case <-w.doneCh:
+		return true
+	default:
+		return false
 	}
 }
 
