@@ -9,10 +9,17 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/web
 
 COPY web/package.json web/pnpm-lock.yaml* ./
-RUN corepack enable pnpm && pnpm install --frozen-lockfile || npm install
+
+# 锁定 pnpm 10（与 CI 一致），避免 corepack 拉到 pnpm 11/12
+# 触发新的 ERR_PNPM_IGNORED_BUILDS 等破坏性校验；
+# esbuild / vue-demi 的安装脚本白名单已在 web/package.json 的
+# pnpm.onlyBuiltDependencies 中声明。
+RUN corepack enable pnpm && \
+    corepack prepare pnpm@10 --activate && \
+    pnpm install --frozen-lockfile
 
 COPY web/ .
-RUN npm run build
+RUN pnpm build
 
 # ---- Stage 2: 构建 Go 二进制（嵌入前端产物） ----
 FROM golang:1.25-alpine AS backend-builder
@@ -46,7 +53,9 @@ ENV TZ=Asia/Shanghai
 
 # 创建非 root 用户（固定 UID=1000，与宿主机普通用户匹配）
 # 创建 magicmail 用户（UID/GID=1000），入口脚本会在运行时用 su-exec 降权切换到此用户
-RUN addgroup -S -g 1000 magicmail && \
+# 注意：adduser 的 -h 主目录必须已存在，否则报 "/app/data: No such file or directory"
+RUN mkdir -p /app/data && \
+    addgroup -S -g 1000 magicmail && \
     adduser -S -u 1000 -G magicmail -h /app/data -s /sbin/nologin magicmail
 
 WORKDIR /app
