@@ -90,7 +90,7 @@ main:
 $:
   vscode:
     - docker:
-        build: .ide/Dockerfile
+        build: .cnb/Dockerfile
       services:
         - name: vscode
           options:
