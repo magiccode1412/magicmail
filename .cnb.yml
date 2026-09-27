@@ -3,6 +3,90 @@
 include:
   - .cnb/release.yml
 
+# 同步到 GitHub
+.sync_to_github: &sync_to_github
+  name: sync_to_github
+  imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
+  stages:
+    - name: sync_to_github
+      image: tencentcom/git-sync
+      settings:
+        target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
+        auth_type: https
+        username: "${GITHUB_USERNAME}"
+        password: "${GITHUB_ACCESS_TOKEN}"
+        force: true
+        push_tags: true
+
+
+# 开发分支
+dev:
+  push:
+    # 同步到 GitHub
+    - <<: *sync_to_github
+
+    # 构建校验
+    - name: build-verify
+      runner:
+        cpus: 8
+      docker:
+        build: .ci/Dockerfile
+      stages:
+        - name: 构建校验
+          script: bash ./scripts/verify-build.sh
+
+  # 构建开发Docker镜像
+  web_trigger_docker_dev:
+    - services:
+        - docker
+      name: 构建开发Docker
+      imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
+      stages:
+        - name: docker build && push
+          script: bash ./scripts/docker.sh dev
+
+  # 同步GitHub到CNBC
+  web_trigger_sync_from_github:
+    - imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
+      stages:
+        - name: sync from github
+          image: tencentcom/git-sync
+          settings:
+            target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
+            auth_type: https
+            username: "${GITHUB_USERNAME}"
+            password: "${GITHUB_ACCESS_TOKEN}"
+            sync_mode: pull
+
+# 主分支
+main:
+  # 发版
+  tag_push:
+    - <<: *sync_to_github
+    - name: 构建Docker镜像
+      services:
+        - docker
+      env:
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest
+      stages:
+        - name: 获取版本号
+          script: |
+            # version.json 没有 version 字段，最新版本号在 latest（形如 v1.2.0）；
+            # Docker 镜像标签惯例不带 v 前缀，这里一并去掉
+            VERSION=$(jq -r '.latest // empty' /workspace/version.json | sed 's/^v//')
+            if [ -z "${VERSION}" ]; then
+              echo "::error::version.json 中未取到 latest 版本号"
+              exit 1
+            fi
+            echo "##[set-output app_version=$VERSION]"
+          exports:
+            app_version: APP_VERSION
+        - name: 登录Docker仓库
+          script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+        - name: 构建和推送Docker镜像
+          script: docker buildx build -t ${IMAGE_TAG} -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${APP_VERSION} --platform linux/amd64,linux/arm64,linux/arm/v7 --push .
+
+# 全局
 $:
   vscode:
     - docker:
@@ -12,37 +96,9 @@ $:
           options:
             keepAliveTimeout: 2h
         - docker
-
-  push:
-      - name: sync_to_github
-        imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
-        stages:
-          - name: sync_to_github
-            image: tencentcom/git-sync
-            settings:
-              target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
-              auth_type: https
-              username: "${GITHUB_USERNAME}"
-              password: "${GITHUB_ACCESS_TOKEN}"
-              force: true
-              # push_tags 默认 false，只同步分支不同步标签，
-              # 会导致 GitHub Actions 里 tags: ['v*'] 的工作流永远不会触发。
-              push_tags: true
-
-  # push 事件只在分支推送时触发，打 tag 不会触发，
-  # 因此单独配置 tag_push，否则推到 cnb 的 tag 要等下一次分支推送才会同步过去。
-  tag_push:
-      - imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
-        stages:
-          - name: sync_tag_to_github
-            image: tencentcom/git-sync
-            settings:
-              target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
-              auth_type: https
-              username: "${GITHUB_USERNAME}"
-              password: "${GITHUB_ACCESS_TOKEN}"
-              force: true
-              push_tags: true
+      stages:
+        - name: ls
+          script: ls -a
 
   web_trigger_docker_cnb:
     - runner:
@@ -131,56 +187,3 @@ $:
               - latest-linux-amd64
               - latest-linux-arm64
             type: docker
-
-dev:
-  # 注意：一旦为 dev 单独配置了 push，$ 兜底分支下的 push 就不再对该分支生效，
-  # 所以同步到 GitHub 的任务必须在这里一并声明，否则 dev 的改动推不到 GitHub。
-  push:
-    - name: sync_to_github
-      imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
-      stages:
-        - name: sync_to_github
-          image: tencentcom/git-sync
-          settings:
-            target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
-            auth_type: https
-            username: "${GITHUB_USERNAME}"
-            password: "${GITHUB_ACCESS_TOKEN}"
-            force: true
-            # push_tags 默认 false，只同步分支不同步标签，
-            # 会导致 GitHub Actions 里 tags: ['v*'] 的工作流永远不会触发。
-            push_tags: true
-
-    # 全量构建校验：不发 Release、不推镜像，
-    # 只验证「发版时要构建的东西现在还构建得出来」。
-    # 重点拦住两类问题：FPK 内前端丢失 /app/magicmail 前缀（装上白屏）、
-    # FPK 内二进制架构与 manifest 声明不一致（装上跑不起来）——
-    # 这两类只有真正打出 FPK 才能发现，单测和前端构建都拦不住。
-    - name: build-verify
-      runner:
-        cpus: 8
-      docker:
-        build: .ci/Dockerfile
-      stages:
-        - name: 构建校验
-          script: bash ./scripts/verify-build.sh
-
-  web_trigger_docker_dev:
-    - services:
-        - docker
-      imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
-      stages:
-        - name: docker build && push
-          script: bash ./scripts/docker.sh dev
-
-  web_trigger_sync_from_github:
-    - imports: https://cnb.cool/magiccode1412/secret/-/blob/main/env.yml
-      stages:
-        - name: sync from github
-          image: tencentcom/git-sync
-          settings:
-            target_url: https://github.com/${GITHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}.git
-            auth_type: https
-            username: "${GITHUB_USERNAME}"
-            password: "${GITHUB_ACCESS_TOKEN}"
-            sync_mode: pull
