@@ -1,16 +1,4 @@
 branch:
-  - buttons:
-      - name: docker_cnb
-        description: 构建完整docker镜像
-        event: web_trigger_docker_cnb
-      - name: docker_dev
-        description: 构建完整docker镜像
-        event: web_trigger_docker_dev
-      - name: sync_from_github
-        description: 同步github仓库dev分支
-        event: web_trigger_sync_from_github
-
-  # 只在 main（发布冻结分支）显示：重建产物必须来自已冻结的发布代码
   - reg: ^main$
     buttons:
       - name: 重建最新版本
@@ -22,3 +10,6 @@ branch:
             description: 留空则取 version.json 的 latest，即当前最新版本
             placeholder: v1.3.0
             type: input
+      - name: 构建docker镜像
+        description: 构建完整docker镜像，上传到CNB和DockerHub
+        event: web_trigger_docker
