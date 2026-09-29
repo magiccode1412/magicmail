@@ -406,6 +406,54 @@
         </div>
       </section>
 
+      <!-- 翻译设置（按用户配置 MyMemory 凭据与目标语言） -->
+      <section class="settings-section card">
+        <h3 class="section-title">翻译设置</h3>
+        <p class="section-desc">
+          配置邮件翻译（基于
+          <a href="https://mymemory.translated.net/" target="_blank" rel="noopener noreferrer">MyMemory</a>
+          翻译服务，凭据按用户各自保存）
+        </p>
+
+        <div class="setting-row" style="align-items: flex-start; padding-top: var(--space-md);">
+          <div class="setting-info">
+            <strong>目标语言</strong>
+            <small>翻译后正文显示的语言</small>
+          </div>
+          <select class="poll-select" v-model="transTarget">
+            <option v-for="opt in targetLangOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-grid" style="margin-top: var(--space-md);">
+          <div class="form-field">
+            <label>MyMemory 邮箱</label>
+            <input v-model="transEmail" type="email" placeholder="用于提升免费额度至 5000 词/天" />
+            <small class="field-hint" v-if="transHasEmail">已配置（出于安全不回显）</small>
+          </div>
+          <div class="form-field">
+            <label>MyMemory Key</label>
+            <input v-model="transKey" type="password" placeholder="填写后额度不限（留空则不修改）" />
+            <small class="field-hint" v-if="transHasKey">已配置（出于安全不回显）</small>
+          </div>
+        </div>
+
+        <p class="translate-privacy-note">
+          ⚠️ 翻译时邮件正文会发送至第三方
+          <a href="https://mymemory.translated.net/" target="_blank" rel="noopener noreferrer">MyMemory（Translated）</a>
+          服务器，请勿用于高度敏感邮件。
+        </p>
+
+        <div class="setting-actions">
+          <button class="btn btn-primary btn-sm" @click="saveTranslationSettings" :disabled="transSaving">
+            <span v-if="transSaving" class="spinner-xs"></span>
+            {{ transSaving ? '保存中...' : '保存翻译设置' }}
+          </button>
+        </div>
+      </section>
+
     </div>
   </div>
 </template>
@@ -422,6 +470,7 @@ import * as webhookApi from '@/api/webhook'
 import { useAuthStore } from '@/stores/authStore'
 import * as usersApi from '@/api/users'
 import * as settingsApi from '@/api/settings'
+import * as translateApi from '@/api/translate'
 
 const toast = useToast()
 const appStore = useAppStore()
@@ -820,6 +869,68 @@ async function deleteUserAction(u) {
   }
 }
 
+// --- 翻译设置（按用户） ---
+const transTarget = ref('zh-CN')
+const transEmail = ref('')
+const transKey = ref('')
+const transHasEmail = ref(false)
+const transHasKey = ref(false)
+const transSaving = ref(false)
+
+const targetLangOptions = [
+  { value: 'zh-CN', label: '简体中文' },
+  { value: 'zh-TW', label: '繁体中文' },
+  { value: 'en', label: '英语' },
+  { value: 'ja', label: '日语' },
+  { value: 'ko', label: '韩语' },
+  { value: 'fr', label: '法语' },
+  { value: 'de', label: '德语' },
+  { value: 'es', label: '西班牙语' },
+  { value: 'ru', label: '俄语' },
+  { value: 'pt', label: '葡萄牙语' },
+  { value: 'it', label: '意大利语' },
+  { value: 'vi', label: '越南语' },
+  { value: 'th', label: '泰语' },
+  { value: 'id', label: '印尼语' },
+  { value: 'ms', label: '马来语' },
+  { value: 'ar', label: '阿拉伯语' },
+  { value: 'nl', label: '荷兰语' },
+  { value: 'pl', label: '波兰语' },
+  { value: 'tr', label: '土耳其语' },
+]
+
+async function fetchTranslationSettings() {
+  try {
+    const res = await translateApi.getTranslationSettings()
+    transTarget.value = res.target_lang || 'zh-CN'
+    transHasEmail.value = !!res.has_email
+    transHasKey.value = !!res.has_key
+  } catch (e) {
+    console.error('获取翻译设置失败:', e)
+  }
+}
+
+async function saveTranslationSettings() {
+  transSaving.value = true
+  try {
+    await translateApi.saveTranslationSettings({
+      target_lang: transTarget.value,
+      mm_email: transEmail.value,
+      mm_key: transKey.value,
+    })
+    // 留空表示「保持原配置不变」；填了则标记为已配置，并清空输入框
+    if (transEmail.value !== '') transHasEmail.value = true
+    if (transKey.value !== '') transHasKey.value = true
+    transEmail.value = ''
+    transKey.value = ''
+    toast.success('翻译设置已保存')
+  } catch (e) {
+    toast.error(e.message || '保存失败')
+  } finally {
+    transSaving.value = false
+  }
+}
+
 // --- 主题选项 ---
 const themeOptions = [
   {
@@ -871,6 +982,7 @@ function onCustomColorInput(event) {
 onMounted(() => {
   checkNotifStatus()
   fetchWebhooks()
+  fetchTranslationSettings()
   startCountdown()
 
   if (authStore.isAdmin) {
@@ -1186,6 +1298,18 @@ const pushStatusLabel = computed(() => {
   display: flex;
   gap: var(--space-sm);
   flex-wrap: wrap;
+  margin-top: var(--space-lg);
+}
+
+.translate-privacy-note {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  line-height: 1.6;
 }
 
 @media (max-width: 480px) {

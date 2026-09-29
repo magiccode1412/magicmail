@@ -69,6 +69,10 @@ func Register(app *fiber.App, db *gorm.DB, cfg *config.Config) {
 	settingsHandler := handlers.NewSettingsHandler(authService)
 	pushHandler := handlers.NewPushHandler(pushService)
 
+	// 翻译服务（代理 MyMemory，按用户配置凭据与目标语言）
+	translationService := services.NewTranslationService(db)
+	translationHandler := handlers.NewTranslationHandler(translationService, mailService)
+
 	// 认证中间件实例
 	authMiddleware := middleware.AuthRequired(authService)
 
@@ -84,7 +88,8 @@ func Register(app *fiber.App, db *gorm.DB, cfg *config.Config) {
 		draftHandler:      draftHandler,
 		userHandler:       userHandler,
 		settingsHandler:   settingsHandler,
-		pushHandler:       pushHandler,
+		pushHandler:        pushHandler,
+		translationHandler: translationHandler,
 		authMiddleware:    authMiddleware,
 	})
 
@@ -109,7 +114,8 @@ type routeDeps struct {
 	draftHandler      *handlers.DraftHandler
 	userHandler       *handlers.UserHandler
 	settingsHandler   *handlers.SettingsHandler
-	pushHandler       *handlers.PushHandler
+	pushHandler        *handlers.PushHandler
+	translationHandler *handlers.TranslationHandler
 	authMiddleware    fiber.Handler
 }
 
@@ -188,6 +194,14 @@ func registerAppRoutes(app *fiber.App, d routeDeps) {
 	mails.Post("/batch-delete", d.mailHandler.BatchDelete)
 	mails.Post("/batch-read", d.mailHandler.BatchMarkAsRead)
 	mails.Post("/mark-all-read", d.mailHandler.MarkAllAsRead)
+	mails.Post("/:id/translate", d.translationHandler.TranslateMail) // 翻译指定邮件正文
+
+	// ============================================================
+	//  翻译 API（按用户配置 MyMemory 凭据与目标语言）
+	// ============================================================
+	protected.Get("/settings/translation", d.translationHandler.GetSettings)
+	protected.Put("/settings/translation", d.translationHandler.SaveSettings)
+	protected.Post("/translate", d.translationHandler.TranslateText)
 
 	// ============================================================
 	//  草稿 API

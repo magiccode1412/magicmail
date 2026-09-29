@@ -45,6 +45,18 @@
             </svg>
             回复
           </button>
+          <button
+            class="btn btn-ghost btn-sm"
+            :class="{ active: showTranslation }"
+            @click="doTranslate"
+            :disabled="translating"
+            :title="translating ? '翻译中...' : '翻译正文'"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2.5 4.5h7M8 2.5l2 2-2 2M13.5 11.5h-7M8 13.5l-2-2 2-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            {{ translating ? '翻译中' : '翻译' }}
+          </button>
           <button class="btn btn-ghost btn-sm danger-hover" @click="handleDelete" title="删除">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M3 4h10M5.33 4V2.67a1.33 1.33 0 0 1 1.34-1.34h2.66a1.33 1.33 0 0 1 1.34 1.34V4m2 0v9.33A1.33 1.33 0 0 1 11.34 15H4.67a1.33 1.33 0 0 1-1.34-1.34V4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -92,6 +104,23 @@
         />
       </section>
 
+      <!-- 翻译结果 -->
+      <section v-if="showTranslation" class="mail-translation card">
+        <div class="translation-header">
+          <strong>译文</strong>
+          <div class="translation-meta">
+            <span v-if="transDetected" class="translation-lang">检测到原文：{{ transDetected }}</span>
+            <span class="translation-lang">→ {{ targetLangLabel }}</span>
+            <button class="btn btn-ghost btn-sm" @click="closeTranslation">收起</button>
+          </div>
+        </div>
+        <div v-if="translating" class="translation-loading">
+          <span class="spinner-xs"></span><span>正在翻译...</span>
+        </div>
+        <pre v-else-if="translateError" class="translation-error">{{ translateError }}</pre>
+        <pre v-else class="translation-text">{{ translatedText }}</pre>
+      </section>
+
       <!-- 附件列表 -->
       <section v-if="mail.attachments && mail.attachments.length > 0" class="mail-attachments card">
         <AttachmentList :attachments="mail.attachments" />
@@ -107,6 +136,7 @@ import { useMailStore } from '@/stores/mailStore'
 import MailContent from '../components/MailContent.vue'
 import AttachmentList from '../components/AttachmentList.vue'
 import EmptyState from '../components/EmptyState.vue'
+import * as translateApi from '@/api/translate'
 
 const route = useRoute()
 import { useToast } from '@/composables/useToast'
@@ -118,6 +148,47 @@ const mailStore = useMailStore()
 const loading = ref(true)
 const error = ref(null)
 const mail = ref(null)
+
+// --- 翻译状态 ---
+const translatedText = ref('')
+const transDetected = ref('')
+const targetLangLabel = ref('')
+const translating = ref(false)
+const translateError = ref('')
+const showTranslation = ref(false)
+
+const targetLangMap = {
+  'zh-CN': '简体中文', 'zh-TW': '繁体中文', 'en': '英语', 'ja': '日语', 'ko': '韩语',
+  'fr': '法语', 'de': '德语', 'es': '西班牙语', 'ru': '俄语', 'pt': '葡萄牙语',
+  'it': '意大利语', 'vi': '越南语', 'th': '泰语', 'id': '印尼语', 'ms': '马来语',
+  'ar': '阿拉伯语', 'nl': '荷兰语', 'pl': '波兰语', 'tr': '土耳其语',
+}
+
+async function doTranslate() {
+  if (!mail.value) return
+  translating.value = true
+  translateError.value = ''
+  translatedText.value = ''
+  transDetected.value = ''
+  showTranslation.value = true
+  try {
+    const res = await translateApi.translateMail(mail.value.id)
+    translatedText.value = res.translated_text
+    transDetected.value = res.detected_source || ''
+    targetLangLabel.value = targetLangMap[res.target_lang] || res.target_lang || ''
+  } catch (e) {
+    translateError.value = e.message || '翻译失败'
+  } finally {
+    translating.value = false
+  }
+}
+
+function closeTranslation() {
+  showTranslation.value = false
+  translatedText.value = ''
+  translateError.value = ''
+  transDetected.value = ''
+}
 
 // --- 数据获取 ---
 onMounted(async () => {
@@ -339,6 +410,58 @@ function formatTime(dateStr) {
 /* ---- 附件区域 ---- */
 .mail-attachments {
   padding: var(--space-lg);
+}
+
+/* ---- 翻译结果区域 ---- */
+.mail-translation {
+  padding: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+.translation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+.translation-header strong {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+.translation-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.translation-lang {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+.translation-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  padding: var(--space-md) 0;
+}
+.translation-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-primary);
+  margin: 0;
+}
+.translation-error {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-size-sm);
+  color: var(--error, #dc2626);
+  margin: 0;
 }
 
 @media (max-width: 768px) {
