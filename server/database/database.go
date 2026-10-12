@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"magicmail/crypto"
 	"magicmail/models"
@@ -150,29 +151,37 @@ func migrateUserOwnership(db *gorm.DB) {
 // ensureUserIDColumns 兜底迁移：确保多用户隔离涉及的表都存在 user_id 列。
 // 老版本库在 AutoMigrate 阶段可能未补齐该列，这里显式 ALTER TABLE ADD COLUMN 修复，
 // 避免运行期出现 "no such column: user_id"。webhook_logs 仅通过 webhook_id 关联，不需要 user_id。
+// validSQLIdentifier 校验字符串是否为合法 SQL 标识符（仅含字母/数字/下划线，且不以数字开头）。
+// DDL（ALTER TABLE / DROP COLUMN / pragma_table_info）无法对表名、列名做参数化绑定，
+// 此类标识符只能以字面量嵌入 SQL 文本。为防止任何来源（含未来维护者误用）的注入，
+// 在拼接待前对标识符做白名单校验，非法则拒绝执行。
+func validSQLIdentifier(s string) bool {
+	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(s)
+}
+
 func ensureUserIDColumns(db *gorm.DB) {
 	type colDef struct {
 		table   string
-		notNull bool // 是否以 NOT NULL DEFAULT 0 追加（兼容存量行）
+		colType string // 固定列定义片段，非运行时拼接
 	}
 	tables := []colDef{
-		{"mails", true},
-		{"mail_accounts", true},
-		{"webhooks", true},
-		{"drafts", false},
-		{"push_subscriptions", true},
+		{"mails", "INTEGER NOT NULL DEFAULT 0"},
+		{"mail_accounts", "INTEGER NOT NULL DEFAULT 0"},
+		{"webhooks", "INTEGER NOT NULL DEFAULT 0"},
+		{"drafts", "INTEGER"},
+		{"push_subscriptions", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, t := range tables {
+		if !validSQLIdentifier(t.table) {
+			log.Printf("⚠️  [迁移] 跳过非法表名，拒绝执行 ALTER: %s", t.table)
+			continue
+		}
 		var cnt int64
 		db.Raw(fmt.Sprintf("SELECT count(*) FROM pragma_table_info('%s') WHERE name = 'user_id'", t.table)).Scan(&cnt)
 		if cnt > 0 {
 			continue // 列已存在，跳过
 		}
-		typ := "INTEGER"
-		if t.notNull {
-			typ += " NOT NULL DEFAULT 0"
-		}
-		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN user_id %s", t.table, typ)).Error; err != nil {
+		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN user_id %s", t.table, t.colType)).Error; err != nil {
 			log.Printf("⚠️  [迁移] 为 %s 表补充 user_id 列失败: %v", t.table, err)
 		} else {
 			log.Printf("✅ [迁移] 已为 %s 表补充 user_id 列", t.table)
@@ -210,6 +219,10 @@ func ensureAppConfigColumns(db *gorm.DB) {
 	// 主列：VAPID 密钥（正确 snake_case 命名，与模型显式 column 标签一致）
 	columns := []string{"vapid_public_key", "vapid_private_key"}
 	for _, col := range columns {
+		if !validSQLIdentifier(col) {
+			log.Printf("⚠️  [迁移] 跳过非法列名，拒绝执行 ALTER: %s", col)
+			continue
+		}
 		var cnt int64
 		db.Raw(fmt.Sprintf("SELECT count(*) FROM pragma_table_info('app_configs') WHERE name = '%s'", col)).Scan(&cnt)
 		if cnt > 0 {
@@ -228,6 +241,10 @@ func ensureAppConfigColumns(db *gorm.DB) {
 	// 注意：SQLite >= 3.35 才支持 ALTER TABLE ... DROP COLUMN，旧版本会报错，此处忽略。
 	orphans := []string{"v_api_d_public_key", "v_api_d_private_key"}
 	for _, col := range orphans {
+		if !validSQLIdentifier(col) {
+			log.Printf("⚠️  [迁移] 跳过非法列名，拒绝执行 DROP: %s", col)
+			continue
+		}
 		var cnt int64
 		db.Raw(fmt.Sprintf("SELECT count(*) FROM pragma_table_info('app_configs') WHERE name = '%s'", col)).Scan(&cnt)
 		if cnt == 0 {
