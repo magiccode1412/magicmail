@@ -18,22 +18,12 @@ GitHub仓库只用于存储源代码，意见、建议或pr请移步[CNB云原�
 <table>
   <tr>
     <td align="center">
-      <a href="https://qm.qq.com/q/wWS78gByRa">点此加入QQ群</a>
-      <br>
-      <img src="./public/images/qq-group.jpg" alt="qq-group" height="256px">
-    </td>
-    <td align="center">
-      <a href="https://pd.qq.com/s/eveskv89x">点此加入QQ频道</a>
-      <br>
-      <img src="./public/images/qq-channel.jpg" alt="qq-channel" height="256px">
-    </td>
-    <td align="center">
-      <a href="https://pd.qq.com/s/eveskv89x">支付宝</a>
+      支付宝
       <br>
       <img src="./public/images/alipay.png" alt="alipay" height="256px">
     </td>
     <td align="center">
-      <a href="https://pd.qq.com/s/eveskv89x">微信</a>
+      微信
       <br>
       <img src="./public/images/wechat.png" alt="wechat" height="256px">
     </td>

@@ -4,8 +4,6 @@ display_name          = 魔法邮箱
 desc                  = """魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台，一站式收取、管理多个邮箱。支持 IMAP IDLE 实时推送、PWA 客户端、Webhook 通知、多账号管理、邮件去重等功能。
 <a href="https://github.com/magiccode1412/magicmail" target="_blank">GitHub</a>
 <a href="https://www.160621.xyz/magicmail" target="_blank">文档</a>
-<a href="https://qm.qq.com/q/wWS78gByRa" target="_blank">点此加入QQ群：314514507</a>
-<a href="https://pd.qq.com/s/eveskv89x" target="_blank">点此加入QQ频道</a>
 """
 platform              = x86
 source                = thirdparty
