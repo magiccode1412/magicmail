@@ -30,6 +30,9 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "vue-demi"
-    ]
+    ],
+    "overrides": {
+      "postcss": "8.5.18"
+    }
   }
 }
