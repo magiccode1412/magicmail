@@ -32,7 +32,8 @@
       "vue-demi"
     ],
     "overrides": {
-      "postcss": "8.5.18"
+      "postcss": "8.5.18",
+      "nanoid": "3.3.16"
     }
   }
 }
