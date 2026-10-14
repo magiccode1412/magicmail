@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [v1.4.0] - 2026-10-14
+
+### 新增
+- 新增**邮件翻译功能**：可将邮件正文翻译为目标语言，支持服务商与默认目标语言配置（`server/services/translation_service.go`、`server/handlers/translation_handler.go`、`web/src/api/translate.js`、`web/src/views/MailReaderView.vue`）
+- 批量删除支持**实时进度显示**：长时间删除操作可在界面观察处理进度，不再卡在「处理中」（`server/services/mail_service.go`、`web/src/stores/mailStore.js`）
+- 新增**自定义输入弹窗**组件，替换浏览器原生 `prompt` / `confirm` 对话框，交互更可控、样式统一
+
+### 修复
+- 修复数据库迁移 SQL 中标识符未校验导致的注入风险：迁移语句涉及的表名 / 列名现经白名单校验
+
+### 构建
+- 升级 axios 至 `1.18.0`、form-data 至 `4.0.6`，固定 nanoid `3.3.16`、postcss `8.5.18`（依赖安全 / 稳定性覆盖）
+
+### 部署 & CI/CD
+- 重构多平台 Docker 镜像构建流水线，统一构建入口
+- 移除 GitHub Actions 工作流配置，构建与发版迁移至 cnb
+- 新增 EdgeOne 部署文档流水线
+- 修正 VSCode 构建 Dockerfile 路径为 `.cnb/Dockerfile`
+
+### 文档
+- 新增邮件翻译功能文档（`docs/guide/translation.md`），更新 README 文档链接与章节结构
+- 移除 QQ 群 / QQ 频道相关内容
+
 ## [v1.3.1] - 2026-09-21
 
 ### 修复
