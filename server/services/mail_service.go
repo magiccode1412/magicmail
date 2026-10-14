@@ -377,6 +377,62 @@ func (s *MailService) BatchDelete(ids []uint, userID uint) *BatchDeleteResult {
 	return result
 }
 
+// BatchDeleteProgress 批量删除过程中的进度快照
+type BatchDeleteProgress struct {
+	TaskID    string `json:"task_id"`    // 本次批量删除任务标识，用于前端关联进度
+	Processed int    `json:"processed"`  // 已处理邮件数（成功 + 失败）
+	Total     int    `json:"total"`      // 待删除邮件总数
+	Deleted   int64  `json:"deleted"`    // 已成功删除数
+	Failed    int    `json:"failed"`     // 已失败数
+	Phase     string `json:"phase"`      // 阶段：deleting / done / error
+	Message   string `json:"message,omitempty"`
+}
+
+// BatchDeleteProgressFunc 进度回调：每处理完一封邮件调用一次，phase="deleting"；结束时调用一次，phase="done"/"error"
+type BatchDeleteProgressFunc func(p BatchDeleteProgress)
+
+// BatchDeleteWithProgress 批量删除邮件（带实时进度回调）
+// 在每封邮件删除完成后通过回调上报进度，供 handler 经 SSE 推送到前端展示进度条。
+func (s *MailService) BatchDeleteWithProgress(ids []uint, userID uint, taskID string, onProgress BatchDeleteProgressFunc) *BatchDeleteResult {
+	result := &BatchDeleteResult{
+		ServerSyncResult: make(map[uint]*DeleteResult),
+	}
+
+	total := len(ids)
+	report := func(phase string, msg string) {
+		if onProgress == nil {
+			return
+		}
+		onProgress(BatchDeleteProgress{
+			TaskID:    taskID,
+			Processed: int(result.Deleted) + len(result.Failed),
+			Total:     total,
+			Deleted:   result.Deleted,
+			Failed:    len(result.Failed),
+			Phase:     phase,
+			Message:   msg,
+		})
+	}
+
+	for _, id := range ids {
+		delResult := s.Delete(id, userID)
+		result.ServerSyncResult[id] = delResult
+
+		if delResult.Success {
+			result.Deleted++
+		} else {
+			result.Failed = append(result.Failed, id)
+			log.Printf("[MailService] 批量删除失败 (id=%d)", id)
+		}
+
+		// 每处理一封即上报进度
+		report("deleting", "")
+	}
+
+	result.Success = len(result.Failed) == 0
+	return result
+}
+
 // deleteFromServer 在源服务器上删除对应邮件
 func (s *MailService) deleteFromServer(account *models.MailAccount, mail *models.Mail) error {
 	client, err := imap.NewMailClient(account, s.config)

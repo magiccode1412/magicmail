@@ -177,6 +177,18 @@ export function useSSE(options = {}) {
         }
       })
 
+      // 批量删除进度事件（实时刷新进度条；task_id 用于关联同一批删除）
+      es.addEventListener('mail.batch_delete_progress', (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (typeof options.onBatchDeleteProgress === 'function') {
+            options.onBatchDeleteProgress(data)
+          }
+        } catch (e) {
+          console.error('[useSSE] 解析 mail.batch_delete_progress 事件失败:', e)
+        }
+      })
+
       // 账号生命周期事件（创建/更新/删除/状态变更，用于多标签页一致性）
       const accountLifecycleEvents = ['account.created', 'account.updated', 'account.deleted', 'account.status_changed']
       accountLifecycleEvents.forEach((evt) => {
@@ -367,6 +379,15 @@ export function useMailStream(onMailUpdate, extraOptions = {}) {
     onMailSynced: onUpdate,
     onMailSent: onUpdate, // 修复 mail.sent 死事件：发送后触发列表/统计刷新
     onMailDeleted: onDeleted, // 跨标签页删除实时一致
+    onBatchDeleteProgress: (data) => {
+      // 批量删除进度实时写入共享 store，供任意视图展示进度条
+      try {
+        const store = useMailStore()
+        store.handleBatchDeleteProgress(data)
+      } catch (e) {
+        // store 未初始化时忽略
+      }
+    },
     onError: () => {
       // 连接中断由内部自动重连处理
     },

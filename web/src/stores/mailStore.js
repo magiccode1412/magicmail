@@ -28,6 +28,18 @@ export const useMailStore = defineStore('mail', () => {
   const error = ref(null)
   const stats = ref({})
 
+  // 批量删除进度（来自 SSE 实时推送）：用于在批量删除时展示进度条
+  const batchDeleteProgress = ref({
+    active: false,     // 是否正在显示进度
+    taskID: '',        // 当前批次任务标识
+    processed: 0,      // 已处理数量
+    total: 0,          // 总数量
+    deleted: 0,        // 已成功删除
+    failed: 0,         // 失败数量
+    phase: '',         // deleting | done | error
+    message: ''
+  })
+
   // 待删除邮件 ID 集合：删除操作后立即生效，但服务器对账（re-fetch）可能仍返回陈旧数据。
   // 用于防止“已删除的邮件”在对账拉取中被重新显示（即“复活”），从而无需手动刷新。
   // 删除请求成功即加入，待对账完成后移除（见 deleteMail / batchDeleteMails 的 finally）。
@@ -160,6 +172,8 @@ export const useMailStore = defineStore('mail', () => {
   // --- 批量删除邮件 ---
   async function batchDeleteMails(ids) {
     try {
+      // 重置进度状态，等待后端 SSE 推送进度（task_id 由后端生成，无需前端关心）
+      resetBatchDeleteProgress()
       const res = await apiBatchDelete(ids)
       // 仅移除“云端删除成功、本地也已删除”的邮件；云端删除失败（保留本地）的邮件需继续展示
       const failedSet = new Set((res.failed || []).map(String))
@@ -214,6 +228,37 @@ export const useMailStore = defineStore('mail', () => {
     // 正在查看的邮件被删除时清空详情，避免停留在已不存在的邮件上
     if (currentMail.value && idSet.has(String(currentMail.value.id))) {
       currentMail.value = null
+    }
+  }
+
+  // --- 处理批量删除进度事件（SSE mail.batch_delete_progress）---
+  // 实时更新进度条；phase=done/error 时标记为非活跃，供 UI 关闭进度展示。
+  function handleBatchDeleteProgress(data) {
+    if (!data) return
+    // 若已有进行中的其它批次，以最新 task_id 为准
+    batchDeleteProgress.value = {
+      active: data.phase !== 'done' && data.phase !== 'error',
+      taskID: data.task_id || batchDeleteProgress.value.taskID,
+      processed: data.processed || 0,
+      total: data.total || 0,
+      deleted: data.deleted || 0,
+      failed: data.failed || 0,
+      phase: data.phase || 'deleting',
+      message: data.message || ''
+    }
+  }
+
+  // 重置批量删除进度状态
+  function resetBatchDeleteProgress() {
+    batchDeleteProgress.value = {
+      active: false,
+      taskID: '',
+      processed: 0,
+      total: 0,
+      deleted: 0,
+      failed: 0,
+      phase: '',
+      message: ''
     }
   }
 
@@ -312,8 +357,8 @@ export const useMailStore = defineStore('mail', () => {
 
   return {
     mails, currentMail, total, currentPage, pageSize,
-    filters, loading, error, hasMore, stats,
-    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails, handleMailDeleted, batchMarkAsRead, markAllAsRead,
+    filters, loading, error, hasMore, stats, batchDeleteProgress,
+    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails, handleMailDeleted, handleBatchDeleteProgress, resetBatchDeleteProgress, batchMarkAsRead, markAllAsRead,
     setFilter, resetFilters, fetchStats,
   }
 })

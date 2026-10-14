@@ -207,6 +207,15 @@ func PublishDraftDeleted(userID uint, ids []uint) {
 	})
 }
 
+// PublishBatchDeleteProgress 发布批量删除进度事件（供 handler 在批量删除过程中按用户隔离推送）
+// taskID 用于前端将同一批删除的进度事件关联起来；phase 表示阶段（"deleting" | "done" | "error"）。
+func PublishBatchDeleteProgress(userID uint, data fiber.Map) {
+	if GlobalBroker() == nil {
+		return
+	}
+	GlobalBroker().PublishToUser(userID, "mail.batch_delete_progress", data)
+}
+
 // PublishMailSynced 发布邮件同步完成事件（供 Worker 调用，按用户隔离）
 func PublishMailSynced(userID, accountID uint, accountEmail string) {
 	if GlobalBroker() == nil {

@@ -172,6 +172,30 @@
       :total="total"
       @change="changePage"
     />
+
+    <!-- 批量删除进度弹窗（SSE 实时推送） -->
+    <transition name="fade">
+      <div v-if="mailStore.batchDeleteProgress.active" class="batch-progress-overlay">
+        <div class="batch-progress-card">
+          <div class="batch-progress-title">
+            <span class="spinner-xs"></span>
+            正在删除邮件…（{{ mailStore.batchDeleteProgress.processed }} / {{ mailStore.batchDeleteProgress.total }}）
+          </div>
+          <div class="batch-progress-bar">
+            <div
+              class="batch-progress-fill"
+              :style="{ width: batchDeletePercent + '%' }"
+            ></div>
+          </div>
+          <div class="batch-progress-meta">
+            <span>已删除 {{ mailStore.batchDeleteProgress.deleted }}</span>
+            <span v-if="mailStore.batchDeleteProgress.failed > 0" class="text-danger">
+              失败 {{ mailStore.batchDeleteProgress.failed }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -246,6 +270,13 @@ const loading = computed(() => mailStore.loading)
 const mails = computed(() => mailStore.mails)
 const total = computed(() => mailStore.total)
 const currentPage = computed(() => mailStore.currentPage)
+
+// 批量删除进度百分比（供进度条宽度）
+const batchDeletePercent = computed(() => {
+  const p = mailStore.batchDeleteProgress
+  if (!p.total) return 0
+  return Math.min(100, Math.round((p.processed / p.total) * 100))
+})
 const pageSize = computed(() => mailStore.pageSize)
 
 // 空状态文案
@@ -353,6 +384,9 @@ async function handleBatchDelete() {
   try {
     const res = await mailStore.batchDeleteMails(selectedIds.value)
 
+    // 进度弹窗由 SSE 事件驱动：phase=done/error 时自动隐藏，这里等待其收尾避免闪烁
+    await waitBatchDeleteDone()
+
     // 分析同步删除结果
     if (res?.server_sync_result) {
       let serverSuccess = 0
@@ -376,7 +410,23 @@ async function handleBatchDelete() {
     clearSelection()
   } catch (e) {
     toast.error('批量删除失败: ' + e.message)
+  } finally {
+    setTimeout(() => mailStore.resetBatchDeleteProgress(), 600)
   }
+}
+
+// 等待批量删除进度收尾（后端 SSE 推送 phase=done/error 后弹窗自动隐藏）
+function waitBatchDeleteDone() {
+  return new Promise(resolve => {
+    const start = Date.now()
+    const timer = setInterval(() => {
+      const p = mailStore.batchDeleteProgress
+      if (p.phase === 'done' || p.phase === 'error' || Date.now() - start > 1200) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 80)
+  })
 }
 
 // --- 生命周期 ---
@@ -571,6 +621,65 @@ function stopRefreshTimer() {
 .fade-leave-active { transition: opacity 0.15s ease-in; }
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
+
+/* ---- 批量删除进度弹窗 ---- */
+.batch-progress-overlay {
+  position: fixed;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  pointer-events: none;
+}
+.batch-progress-card {
+  min-width: 280px;
+  max-width: 90vw;
+  padding: 14px 18px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+  color: var(--text-primary);
+}
+.batch-progress-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.batch-progress-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 6px;
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+  overflow: hidden;
+}
+.batch-progress-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--primary-500, #4f6ef7), var(--primary-400, #6b86f9));
+  transition: width 0.25s ease;
+}
+.batch-progress-meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #8a90a2);
+}
+.spinner-xs {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--primary-200, rgba(79, 110, 247, 0.3));
+  border-top-color: var(--primary-500, #4f6ef7);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 /* ---- 筛选栏 ---- */
 .filter-bar {

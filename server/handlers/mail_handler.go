@@ -241,7 +241,40 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请选择要删除的邮件"})
 	}
 
-	result := h.service.BatchDelete(req.IDs, getUserID(c))
+	userID := getUserID(c)
+	taskID := fmt.Sprintf("batch-del-%d-%d", userID, time.Now().UnixNano())
+
+	// 进度回调：将每封邮件的处理进度经 SSE 推送到前端，展示删除进度条
+	onProgress := func(p services.BatchDeleteProgress) {
+		sse.PublishBatchDeleteProgress(userID, fiber.Map{
+			"task_id":  p.TaskID,
+			"processed": p.Processed,
+			"total":     p.Total,
+			"deleted":   p.Deleted,
+			"failed":    p.Failed,
+			"phase":     p.Phase,
+			"message":   p.Message,
+		})
+	}
+	// 任务开始先推送一条初始进度（0/总数）
+	onProgress(services.BatchDeleteProgress{
+		TaskID: taskID,
+		Total:  len(req.IDs),
+		Phase:  "deleting",
+	})
+
+	result := h.service.BatchDeleteWithProgress(req.IDs, userID, taskID, onProgress)
+
+	// 任务结束推送进度收尾
+	onProgress(services.BatchDeleteProgress{
+		TaskID:  taskID,
+		Total:    len(req.IDs),
+		Deleted:  result.Deleted,
+		Failed:   len(result.Failed),
+		Processed: int(result.Deleted) + len(result.Failed),
+		Phase:    "done",
+		Message:  fmt.Sprintf("已删除 %d 封邮件", result.Deleted),
+	})
 
 	// 仅对“本地删除成功”的邮件广播删除事件；云端删除失败而被保留本地的邮件不应被其它客户端移除
 	failedSet := make(map[uint]bool, len(result.Failed))
