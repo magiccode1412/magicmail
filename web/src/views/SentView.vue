@@ -303,7 +303,7 @@ function openMail(id) {
 }
 
 async function handleDelete(id) {
-  if (!confirm('确定要删除这封邮件吗？')) return
+  if (!(await toast.confirm('确定要删除这封邮件吗？'))) return
   try {
     const res = await mailStore.deleteMail(id)
     if (res?.deleted_from_server) {
@@ -349,7 +349,7 @@ function clearSelection() {
 async function handleBatchDelete() {
   if (selectedIds.value.length === 0) return
   const count = selectedIds.value.length
-  if (!confirm(`确定要删除选中的 ${count} 封邮件吗？此操作不可撤销。`)) return
+  if (!(await toast.confirm(`确定要删除选中的 ${count} 封邮件吗？此操作不可撤销。`))) return
   try {
     const res = await mailStore.batchDeleteMails(selectedIds.value)
 

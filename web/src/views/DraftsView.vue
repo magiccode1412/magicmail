@@ -303,7 +303,7 @@ function clearSelection() {
 async function handleBatchDelete() {
   if (selectedIds.value.length === 0) return
   const count = selectedIds.value.length
-  if (!confirm(`确定要删除选中的 ${count} 个草稿吗？此操作不可撤销。`)) return
+  if (!(await toast.confirm(`确定要删除选中的 ${count} 个草稿吗？此操作不可撤销。`))) return
   try {
     await apiBatchDelete(selectedIds.value)
     drafts.value = drafts.value.filter(d => !selectedIds.value.includes(d.id))

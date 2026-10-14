@@ -351,9 +351,9 @@ function formatText(command) {
   }
 }
 
-function insertLink() {
+async function insertLink() {
   if (!useHtmlMode.value) return
-  const url = prompt('请输入链接地址:', 'https://')
+  const url = await toast.prompt('请输入链接地址:', 'https://')
   if (url) {
     form.value.html_body += `<a href="${url}">${url}</a>`
   }

@@ -351,7 +351,7 @@ function handleMarkRead(id, isRead) {
 }
 
 async function handleDelete(id) {
-  if (!confirm('确定要删除这封邮件吗？')) return
+  if (!(await toast.confirm('确定要删除这封邮件吗？'))) return
   try {
     const res = await mailStore.deleteMail(id)
     // 刷新统计信息（更新菜单栏和标签计数器）
@@ -408,7 +408,7 @@ function clearSelection() {
 async function handleBatchDelete() {
   if (selectedIds.value.length === 0) return
   const count = selectedIds.value.length
-  if (!confirm(`确定要删除选中的 ${count} 封邮件吗？此操作不可撤销。`)) return
+  if (!(await toast.confirm(`确定要删除选中的 ${count} 封邮件吗？此操作不可撤销。`))) return
   try {
     const res = await mailStore.batchDeleteMails(selectedIds.value)
 
@@ -472,7 +472,7 @@ async function handleBatchMarkUnread() {
 }
 
 async function handleMarkAllRead() {
-  if (!confirm('确定要将当前视图中的所有邮件标记为已读吗？')) return
+  if (!(await toast.confirm('确定要将当前视图中的所有邮件标记为已读吗？'))) return
   try {
     const res = await mailStore.markAllAsRead()
     toast.success(res?.message || '已将所有邮件标记为已读')

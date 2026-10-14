@@ -29,12 +29,34 @@
         </div>
       </div>
     </transition>
+
+    <!-- 输入弹窗 (Prompt) -->
+    <transition name="fade">
+      <div v-if="promptDialogs.length > 0" class="confirm-overlay" @click.self="handlePromptCancel">
+        <div class="confirm-dialog card">
+          <h4 class="confirm-title">{{ activePromptDialog.title }}</h4>
+          <p class="confirm-message">{{ activePromptDialog.message }}</p>
+          <input
+            ref="promptInputEl"
+            v-model="promptValue"
+            class="prompt-input"
+            type="text"
+            @keydown.enter="handlePromptConfirm"
+            @keydown.esc="handlePromptCancel"
+          />
+          <div class="confirm-actions">
+            <button class="btn btn-secondary" @click="handlePromptCancel">取消</button>
+            <button class="btn btn-primary" @click="handlePromptConfirm">确定</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </Teleport>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { initToast, initConfirm } from '@/composables/useToast'
+import { ref, computed, watch, nextTick } from 'vue'
+import { initToast, initConfirm, initPrompt } from '@/composables/useToast'
 
 defineEmits(['remove'])
 
@@ -63,6 +85,35 @@ function handleConfirm() {
 function handleCancel() {
   const d = dialogs.value.pop()
   if (d?.resolve) d.resolve(false)
+}
+
+// --- Prompt ---
+const promptDialogs = ref([])
+initPrompt({ promptDialogs })
+
+const promptInputEl = ref(null)
+const promptValue = ref('')
+
+const activePromptDialog = computed(() => promptDialogs.value[promptDialogs.value.length - 1] || {})
+
+// 新弹窗打开时，回填默认值并自动聚焦输入框
+watch(promptDialogs, async (list) => {
+  if (list.length > 0) {
+    promptValue.value = activePromptDialog.value.defaultValue || ''
+    await nextTick()
+    promptInputEl.value?.focus()
+    promptInputEl.value?.select()
+  }
+})
+
+function handlePromptConfirm() {
+  const d = promptDialogs.value.pop()
+  if (d?.resolve) d.resolve(promptValue.value)
+}
+
+function handlePromptCancel() {
+  const d = promptDialogs.value.pop()
+  if (d?.resolve) d.resolve(null)
 }
 </script>
 
@@ -188,6 +239,25 @@ function handleCancel() {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Prompt 输入框 */
+.prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 24px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: var(--radius-sm, 8px);
+  font-size: var(--font-size-base, 14px);
+  color: var(--text-primary, #1a1a2e);
+  background: var(--bg-input, #fff);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.prompt-input:focus {
+  border-color: var(--primary-500, #4F6EF7);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15);
 }
 
 /* 过渡动画 */
