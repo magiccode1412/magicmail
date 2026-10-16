@@ -7,8 +7,8 @@
 ## [v1.4.0] - 2026-10-14
 
 ### 新增
-- 新增**邮件翻译功能**：可将邮件正文翻译为目标语言，支持服务商与默认目标语言配置（`server/services/translation_service.go`、`server/handlers/translation_handler.go`、`web/src/api/translate.js`、`web/src/views/MailReaderView.vue`）
-- 批量删除支持**实时进度显示**：长时间删除操作可在界面观察处理进度，不再卡在「处理中」（`server/services/mail_service.go`、`web/src/stores/mailStore.js`）
+- 新增**邮件翻译功能**：可将邮件正文翻译为目标语言，支持服务商与默认目标语言配置（`apps/server/services/translation_service.go`、`apps/server/handlers/translation_handler.go`、`apps/web/src/api/translate.js`、`apps/web/src/views/MailReaderView.vue`）
+- 批量删除支持**实时进度显示**：长时间删除操作可在界面观察处理进度，不再卡在「处理中」（`apps/server/services/mail_service.go`、`apps/web/src/stores/mailStore.js`）
 - 新增**自定义输入弹窗**组件，替换浏览器原生 `prompt` / `confirm` 对话框，交互更可控、样式统一
 
 ### 修复
@@ -24,14 +24,14 @@
 - 修正 VSCode 构建 Dockerfile 路径为 `.cnb/Dockerfile`
 
 ### 文档
-- 新增邮件翻译功能文档（`docs/guide/translation.md`），更新 README 文档链接与章节结构
+- 新增邮件翻译功能文档（`apps/docs/guide/translation.md`），更新 README 文档链接与章节结构
 - 移除 QQ 群 / QQ 频道相关内容
 
 ## [v1.3.1] - 2026-09-21
 
 ### 修复
-- 修复再次添加同服务商（Outlook/Hotmail）OAuth2 邮箱时复用上一次认证结果、导致无法添加新邮箱：`oauth.authorized` / `oauth.expired` 被错误列入 SSE 重放事件，新建 SSE 连接会立即收到上一次授权的 email/refresh_token（`server/sse/broker.go`、`web/src/components/WizardOAuth2Flow.vue`）
-- 修复 Outlook 邮箱刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）：`persistOAuthTokens` 依赖 GORM `BeforeUpdate` 钩子加密，但 `db.Model(&MailAccount{}).Updates(&updates)` 把钩子作用在空模型上，导致 refresh_token/access_token 以明文入库；改为写入前显式加密（`server/imap/client.go`）
+- 修复再次添加同服务商（Outlook/Hotmail）OAuth2 邮箱时复用上一次认证结果、导致无法添加新邮箱：`oauth.authorized` / `oauth.expired` 被错误列入 SSE 重放事件，新建 SSE 连接会立即收到上一次授权的 email/refresh_token（`apps/server/sse/broker.go`、`apps/web/src/components/WizardOAuth2Flow.vue`）
+- 修复 Outlook 邮箱刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）：`persistOAuthTokens` 依赖 GORM `BeforeUpdate` 钩子加密，但 `db.Model(&MailAccount{}).Updates(&updates)` 把钩子作用在空模型上，导致 refresh_token/access_token 以明文入库；改为写入前显式加密（`apps/server/imap/client.go`）
 
 ## [v1.3.0] - 2026-09-03
 
@@ -40,7 +40,7 @@
 - ⚠️ **破坏性变更**：密钥由空值改为真实值后，所有已签发 token 立即失效，升级后需重新登录一次
 
 ### 新增
-- 新增 **IMAP 诊断工具 `imapdiag`**（`server/cmd/imapdiag`，用法见 `docs/dev/imap-diagnostics.md`）：排查「收不到信 / IDLE 报错」时绕过应用层直连服务器取数，输出 `STATUS` / `SELECT` / `UID SEARCH` **三条独立路径的邮件数对比**、`-all` 全目录邮件数扫描、IDLE 能力判定与原始协议交互（登录行自动脱敏）。它只存在于源码仓库、**不会打进发布产物**（`build.sh` 仅构建根包）
+- 新增 **IMAP 诊断工具 `imapdiag`**（`apps/server/cmd/imapdiag`，用法见 `apps/docs/dev/imap-diagnostics.md`）：排查「收不到信 / IDLE 报错」时绕过应用层直连服务器取数，输出 `STATUS` / `SELECT` / `UID SEARCH` **三条独立路径的邮件数对比**、`-all` 全目录邮件数扫描、IDLE 能力判定与原始协议交互（登录行自动脱敏）。它只存在于源码仓库、**不会打进发布产物**（`build.sh` 仅构建根包）
 - 文档：`已知问题` 新增「189.cn 等邮箱历史邮件无法通过 IMAP 收取」（服务商限制，含完整排查过程与定性证据）；`特殊邮箱` 新增运营商邮箱（189.cn）章节
 - dev 分支 push 时自动执行全量构建校验：6 个平台交叉编译、飞牛双架构 FPK 打包、网关前缀与二进制架构断言
 - 新增发布流程文档，说明分支模型、版本号同步、tag 归属校验、同步链路与验收清单
@@ -78,7 +78,7 @@
 - 修复 cnb 镜像构建读取不到版本号的问题：字段应为 `latest` 而非 `version`，此前镜像标签被打成 `:null`
 - 修复 `web_trigger_docker_dev` 从未成功执行的问题：其调用的 `scripts/docker.sh` 此前并不存在
 - 发布入口新增校验：`v*` tag 必须打在 `main` 分支上，打在其他分支会直接失败
-- Release 正文改为从 `docs/guide/changelog.md` 提取对应版本条目，修复正文中混入字面量 `format=`、以及内容严重缺失的问题
+- Release 正文改为从 `apps/docs/guide/changelog.md` 提取对应版本条目，修复正文中混入字面量 `format=`、以及内容严重缺失的问题
 - 文档站改用官方 Pages Action 部署，不再依赖 `gh-pages` 分支（原方案因 `publish_dir` 路径错误从未生效过）
 
 ## [v1.2.0] - 2026-09-02

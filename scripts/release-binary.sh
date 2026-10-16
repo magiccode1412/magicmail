@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 # ============================================================================
 # 交叉编译单个平台的二进制（发版用）
@@ -23,7 +24,7 @@ cd "$ROOT"
 
 WORK="${ROOT}/build/go-${GOOS_TARGET}-${GOARCH_TARGET}-${GOARM_TARGET}"
 rm -rf "$WORK"
-cp -r server "$WORK"
+cp -r apps/server "$WORK"
 mkdir -p "$WORK/embedfs/dist"
 cp -r build/web-default/. "$WORK/embedfs/dist/"
 

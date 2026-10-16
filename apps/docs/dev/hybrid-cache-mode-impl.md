@@ -7,7 +7,7 @@
 
 ## 📁 修改的文件清单
 
-### 1. `server/config/config.go` — 新增配置项
+### 1. `apps/server/config/config.go` — 新增配置项
 ```go
 type IMAPConfig struct {
     MaxAttachmentSize int64 // 单附件大小上限（默认 50 MB）
@@ -27,7 +27,7 @@ type IMAPConfig struct {
 
 ---
 
-### 2. `server/models/attachment.go` — 新增字段
+### 2. `apps/server/models/attachment.go` — 新增字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -41,7 +41,7 @@ type IMAPConfig struct {
 
 ---
 
-### 3. `server/imap/fetcher.go` — 核心逻辑变更
+### 3. `apps/server/imap/fetcher.go` — 核心逻辑变更
 
 #### 修改前：
 ```
@@ -82,7 +82,7 @@ multipart/mixed
 
 ---
 
-### 4. `server/services/attachment_service.go` — 业务逻辑重构
+### 4. `apps/server/services/attachment_service.go` — 业务逻辑重构
 
 **核心方法**：
 
@@ -106,7 +106,7 @@ multipart/mixed
 
 ---
 
-### 5. `server/handlers/attachment_handler.go` — HTTP 层改造
+### 5. `apps/server/handlers/attachment_handler.go` — HTTP 层改造
 
 **Download 方法三模式路由**：
 

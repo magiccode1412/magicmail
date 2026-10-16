@@ -240,7 +240,7 @@ start_process() {
     # 与前端 BASE_URL、飞牛网关 gatewayPrefix（manifest 中的 /app/magicmail）保持一致。
     # 网关会把该前缀整段透传，后端由 middleware.BasePath 在路由匹配前剥离，
     # 因此后端只需维护一套根路由。
-    # 注意：修改此处需同步修改 fnapp/manifest 的 gatewayPrefix 与前端 vite BASE_URL。
+    # 注意：修改此处需同步修改 apps/fnapp/manifest 的 gatewayPrefix 与前端 vite BASE_URL。
     export MAGICMAIL_BASE_PATH="/app/magicmail"
 
     # 显式清除：防止从父进程环境或旧构建残留中继承，导致端口被意外监听

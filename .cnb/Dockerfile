@@ -17,6 +17,8 @@ RUN curl -fsSL https://code-server.dev/install.sh | sh \
   && code-server --install-extension mhutchie.git-graph \
   && code-server --install-extension donjayamanne.githistory \
   && code-server --install-extension Tencent-Cloud.coding-copilot \
+  && mkdir -p ~/.local/share/code-server/User \
+  && echo '{"locale":"zh-cn"}' > ~/.local/share/code-server/User/locale.json \
   && echo done
 
 # 安装 ssh 服务，用于支持 VSCode 等客户端通过 Remote-SSH 访问开发环境（也可按需安装其他软件）

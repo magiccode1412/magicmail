@@ -62,19 +62,19 @@
 ## 后端分层详解
 
 ### Routes（路由层）
-`server/routes/` - 定义 URL 路径与 Handler 的映射关系，组织 API 版本结构（含 VAPID 密钥初始化）。
+`apps/server/routes/` - 定义 URL 路径与 Handler 的映射关系，组织 API 版本结构（含 VAPID 密钥初始化）。
 
 ### Middleware（中间件）
-`server/middleware/`
+`apps/server/middleware/`
 - **CORS**：跨域请求处理，支持白名单配置
 - **Auth**：JWT Token 解析与鉴权，保护 `/api/v1/*` 接口
 
 ### Handlers（处理器层）
-`server/handlers/` - 接收 HTTP 请求，解析参数，调用 Service，返回 JSON 响应。
+`apps/server/handlers/` - 接收 HTTP 请求，解析参数，调用 Service，返回 JSON 响应。
 包含 MailHandler、AccountHandler、AuthHandler、AttachmentHandler、WebhookHandler、DraftHandler、PushHandler。
 
 ### Services（业务逻辑层）
-`server/services/` - 核心业务逻辑，包括：
+`apps/server/services/` - 核心业务逻辑，包括：
 - 用户认证（注册 / 登录 / Token 管理）
 - 邮箱账号 CRUD
 - 邮件操作（标记、搜索、删除、批量删除、发送）
@@ -84,35 +84,35 @@
 - **VAPID 密钥管理**：ECDSA P-256 密钥对自动生成与持久化
 
 ### IMAP 模块
-`server/imap/` - IMAP 邮件收取核心
+`apps/server/imap/` - IMAP 邮件收取核心
 - **client.go**：IMAP 连接建立与管理
 - **fetcher.go**：邮件拉取与 MIME 解析
 - **worker.go**：后台调度协程（IDLE + 轮询 + SSE 事件发布）
 
 ### POP3 模块
-`server/pop3/` - POP3 协议支持（自动降级模式）
+`apps/server/pop3/` - POP3 协议支持（自动降级模式）
 
 ### SMTP 模块
-`server/smtp/` - SMTP 发信支持（HTML 正文、附件、抄送/密送）
+`apps/server/smtp/` - SMTP 发信支持（HTML 正文、附件、抄送/密送）
 
 ### Proxy 模块
-`server/proxy/` - HTTP CONNECT / SOCKS5 代理客户端，按账号独立配置
+`apps/server/proxy/` - HTTP CONNECT / SOCKS5 代理客户端，按账号独立配置
 
 ### SSE 模块
-`server/sse/` - Server-Sent Events 实时推送
+`apps/server/sse/` - Server-Sent Events 实时推送
 - **broker.go**：事件广播中心（发布-订阅模式、心跳保活）
 - **handler.go**：HTTP 端点处理器
 
 ### Crypto 模块
-`server/crypto/` - 加密/解密工具
+`apps/server/crypto/` - 加密/解密工具
 - AES-256-GCM 对称加密（邮箱密码存储）
 - VAPID ECDSA P-256 密钥对管理
 
 ### Notifier（通知引擎）
-`server/notifier/` - 异步 HTTP 回调推送（Webhook）+ Push 回调集成。
+`apps/server/notifier/` - 异步 HTTP 回调推送（Webhook）+ Push 回调集成。
 
 ### Models（数据模型）
-`server/models/` - GORM 模型定义，对应数据库表结构（含 AppConfig VAPID 字段）。
+`apps/server/models/` - GORM 模型定义，对应数据库表结构（含 AppConfig VAPID 字段）。
 
 ## 前端架构详解
 

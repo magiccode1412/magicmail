@@ -1,12 +1,12 @@
 # 依赖目录
 node_modules
-web/node_modules
+apps/web/node_modules
 
 # 构建产物（Docker 内重建）
 bin/
-server/embedfs/dist
-web/dist
-server/dist
+apps/server/embedfs/dist
+apps/web/dist
+apps/server/dist
 
 # IDE / 开发工具
 .git
@@ -22,7 +22,7 @@ version.js
 skills-lock.json
 
 # fnOS 应用包
-fnapp/
+apps/fnapp/
 
 # Docker 自身
 Dockerfile

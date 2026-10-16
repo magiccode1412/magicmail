@@ -40,7 +40,7 @@
   docker: &release_docker
     build: .ci/Dockerfile
   env: &release_env
-    # 飞牛统一网关前缀，必须与 fnapp/manifest 的 gatewayPrefix 一致
+    # 飞牛统一网关前缀，必须与 apps/fnapp/manifest 的 gatewayPrefix 一致
     GATEWAY_BASE: /app/magicmail
   endStages: &release_end_stages
     # 中间目录（源码副本、前端副本）不影响最终状态，成功失败都清掉

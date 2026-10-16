@@ -1,16 +1,16 @@
 # Dependencies
-server/vendor/
+apps/server/vendor/
 
 # Build output
-server/bin/
-server/*.exe
-server/*.exe~
-server/*.dll
-server/*.so
-server/*.dylib
-server/mail-proxy
-server/mail-proxy.exe
-server/dist
+apps/server/bin/
+apps/server/*.exe
+apps/server/*.exe~
+apps/server/*.dll
+apps/server/*.so
+apps/server/*.dylib
+apps/server/mail-proxy
+apps/server/mail-proxy.exe
+apps/server/dist
 
 # 发版流水线中间产物（scripts/release-*.sh 产出，流水线结束即清理）
 /build/
@@ -20,16 +20,16 @@ server/dist
 /bin/
 
 # Data (SQLite DB, attachments)
-server/data/
+apps/server/data/
 *.db
 *.db-wal
 *.db-shm
 
 # Frontend
-web/node_modules/
-web/dist/
-web/.vite/
-server/embedfs/dist/
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.vite/
+apps/server/embedfs/dist/
 
 # IDE
 .idea/
@@ -66,5 +66,5 @@ Thumbs.db
 **/.pnpm-store
 **/tmp
 
-/fnapp/app/server/*
-/fnapp/*.fpk
+/apps/fnapp/app/server/*
+/apps/fnapp/*.fpk

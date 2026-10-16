@@ -434,7 +434,7 @@ $env:MAGICMAIL_DSN="C:\data\magicmail.db"
 
 ```bash
 # 复制服务文件
-sudo cp server/magicmail.service /etc/systemd/system/
+sudo cp apps/server/magicmail.service /etc/systemd/system/
 
 # 根据实际路径修改 ExecStart
 sudo systemctl daemon-reload

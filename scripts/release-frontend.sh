@@ -21,33 +21,33 @@ cd "$ROOT"
 GATEWAY_BASE="${GATEWAY_BASE:-/app/magicmail}"
 
 echo "==> 1/3 安装前端依赖"
-( cd web && pnpm install --frozen-lockfile )
+( cd apps/web && pnpm install --frozen-lockfile )
 
 # ---------- 普通二进制用：默认 base ----------
 echo "==> 2/3 构建前端（默认 base）"
-rm -rf server/dist build/web-default
-( cd web && pnpm build )
+rm -rf apps/server/dist build/web-default
+( cd apps/web && pnpm build )
 mkdir -p build/web-default
-cp -r server/dist/. build/web-default/
+cp -r apps/server/dist/. build/web-default/
 
 # ---------- 飞牛 FPK 用：网关 base ----------
 echo "==> 3/3 构建前端（网关 base ${GATEWAY_BASE}）"
-rm -rf server/dist build/web-gateway
-( cd web && BASE_URL="$GATEWAY_BASE" pnpm build )
+rm -rf apps/server/dist build/web-gateway
+( cd apps/web && BASE_URL="$GATEWAY_BASE" pnpm build )
 
 # 网关前缀断言：前缀一丢就是白屏，宁可校验失败也不要出坏包
-if ! grep -q "\"${GATEWAY_BASE}/" server/dist/index.html; then
+if ! grep -q "\"${GATEWAY_BASE}/" apps/server/dist/index.html; then
   echo "::error::前端 index.html 未带 ${GATEWAY_BASE} 前缀，网关下会白屏"
   exit 1
 fi
-if grep -q '"src":"/icons/' server/dist/manifest.webmanifest; then
+if grep -q '"src":"/icons/' apps/server/dist/manifest.webmanifest; then
   echo "::error::manifest.webmanifest 图标未带 ${GATEWAY_BASE} 前缀，网关下会 404"
   exit 1
 fi
 echo "OK: 前端产物已带 ${GATEWAY_BASE} 前缀"
 
 mkdir -p build/web-gateway
-cp -r server/dist/. build/web-gateway/
+cp -r apps/server/dist/. build/web-gateway/
 
-# server/dist 只是中转目录，清掉避免被后续 go build 误当成 embed 源
-rm -rf server/dist
+# apps/server/dist 只是中转目录，清掉避免被后续 go build 误当成 embed 源
+rm -rf apps/server/dist

@@ -4,7 +4,7 @@
 > 后端只维护一套根路由；网关已做 NAS 级认证，可直接凭 `X-Trim-Userid` 免密登录已绑定账号。
 > **不再提供飞牛形态的 TCP 端口**——需要端口访问请部署非飞牛版本（Docker / `build.sh`）。
 >
-> 关联文档：`docs/fnos-gateway-integration-plan.md`（网关接入）、`docs/dual-listen-tcp-unix-plan.md`（双监听，**本计划将其废弃**）。
+> 关联文档：`apps/docs/fnos-gateway-integration-plan.md`（网关接入）、`apps/docs/dual-listen-tcp-unix-plan.md`（双监听，**本计划将其废弃**）。
 
 ---
 
@@ -57,16 +57,16 @@
 
 | 位置 | 现状 |
 |---|---|
-| `fnapp/manifest` | `gatewayPrefix = /app/magicmail`、`gatewaySocket = app.sock`、`checkport = false` |
-| `fnapp/app/ui/config` | `type: iframe`、`url: /app/magicmail`、`allUsers: true` |
-| `fnapp/wizard/install`、`wizard/config` | 含「访问方式设置」步骤：`listen_mode`（gateway/both）+ `tcp_port`（默认 23232） |
-| `fnapp/cmd/main` | 始终注入 `MAGICMAIL_LISTEN=unix://${SOCK}`；`both` 时额外注入 `MAGICMAIL_TCP_ENABLED=1` / `MAGICMAIL_TCP_ADDR`；注入 `MAGICMAIL_BASE_PATH=/app/magicmail`；socket 权限 `0666` |
-| `server/config/config.go` | `Listen` / `TCPEnabled` / `TCPAddr` / `BasePath` 四个字段 |
-| `server/main.go` | 主监听阻塞 + TCP 放 goroutine；中间件顺序 `recover → logger → routes.Register` |
-| `server/routes/routes.go` | **双注册**：`prefixes = [""]`，`BasePath` 非空时追加 `/app/magicmail`，循环注册全部路由；静态资源用「候选路径」兼容两种前缀 |
-| `server/middleware/auth.go` | `GatewayIdentity()` 只要存在 `X-Trim-Userid` 就返回身份，不校验连接来源 |
-| `web/vite.config.js` | `base = BASE_URL`（FPK 构建为 `/app/magicmail`，Docker 为 `/`） |
-| `web/src/api/request.js` | `baseURL = import.meta.env.BASE_URL + 'api/v1'`；兜底跳转 `window.location.href = '/login'`（硬编码，带前缀部署会跳错） |
+| `apps/fnapp/manifest` | `gatewayPrefix = /app/magicmail`、`gatewaySocket = app.sock`、`checkport = false` |
+| `apps/fnapp/app/ui/config` | `type: iframe`、`url: /app/magicmail`、`allUsers: true` |
+| `apps/fnapp/wizard/install`、`wizard/config` | 含「访问方式设置」步骤：`listen_mode`（gateway/both）+ `tcp_port`（默认 23232） |
+| `apps/fnapp/cmd/main` | 始终注入 `MAGICMAIL_LISTEN=unix://${SOCK}`；`both` 时额外注入 `MAGICMAIL_TCP_ENABLED=1` / `MAGICMAIL_TCP_ADDR`；注入 `MAGICMAIL_BASE_PATH=/app/magicmail`；socket 权限 `0666` |
+| `apps/server/config/config.go` | `Listen` / `TCPEnabled` / `TCPAddr` / `BasePath` 四个字段 |
+| `apps/server/main.go` | 主监听阻塞 + TCP 放 goroutine；中间件顺序 `recover → logger → routes.Register` |
+| `apps/server/routes/routes.go` | **双注册**：`prefixes = [""]`，`BasePath` 非空时追加 `/app/magicmail`，循环注册全部路由；静态资源用「候选路径」兼容两种前缀 |
+| `apps/server/middleware/auth.go` | `GatewayIdentity()` 只要存在 `X-Trim-Userid` 就返回身份，不校验连接来源 |
+| `apps/web/vite.config.js` | `base = BASE_URL`（FPK 构建为 `/app/magicmail`，Docker 为 `/`） |
+| `apps/web/src/api/request.js` | `baseURL = import.meta.env.BASE_URL + 'api/v1'`；兜底跳转 `window.location.href = '/login'`（硬编码，带前缀部署会跳错） |
 
 ### 2.2 问题一：TCP 端口可被伪造网关身份免密登录（本次通过「移除 TCP」根除）
 
@@ -92,14 +92,14 @@ curl -H 'X-Trim-Userid: 1' http://<飞牛IP>:23232/api/v1/auth/fnos/login
 即可拿到该飞牛用户所绑定账号的 JWT（`FnosLogin` 全程无密码，`handlers/auth_handler.go:126-145`）。
 即：**局域网内任何人只要知道端口，就能以任意已绑定飞牛用户身份进入应用。**
 
-> `docs/fnos-gateway-integration-plan.md:40` 声称「伪造 Header 在普通 TCP 端口路由下无效」，
+> `apps/docs/fnos-gateway-integration-plan.md:40` 声称「伪造 Header 在普通 TCP 端口路由下无效」，
 > 该结论在「双注册 + TCP 监听」前提下**不成立**。
 > **处置**：本次直接移除 TCP 入口（根因消除），同时保留连接来源判定作为纵深防御（§6.4）。
 
 ### 2.3 问题二：socket 权限 0666 是新的唯一身份伪造入口
 
 移除 TCP 后，「谁可以冒充网关」完全等价于「谁能连上 `app.sock`」。
-当前 `server/main.go:142` 为 `_ = os.Chmod(sockPath, 0666)`，意味着 NAS 上**任意本地进程**
+当前 `apps/server/main.go:142` 为 `_ = os.Chmod(sockPath, 0666)`，意味着 NAS 上**任意本地进程**
 （第三方应用、任意可登录用户）都能连它并伪造 `X-Trim-Userid: 1`。
 
 ⇒ 因此 **0660 从可选加固升级为必做项**（§6.7），且必须真机验证网关进程仍能连接。
@@ -113,9 +113,9 @@ curl -H 'X-Trim-Userid: 1' http://<飞牛IP>:23232/api/v1/auth/fnos/login
 
 | 文档 | 位置 | 原结论 | 订正 |
 |---|---|---|---|
-| `docs/fnos-gateway-integration-plan.md` | :127 | 「Fiber 路由匹配发生在中间件之前，前缀剥离中间件不可行，必须双注册」 | **错误，已实测推翻**（§3.1） |
-| `docs/fnos-gateway-integration-plan.md` | :40 / :218 / :228 | 「伪造 Header 在普通 TCP 端口路由下无效」 | 在双注册前提下不成立（§2.2） |
-| `docs/dual-listen-tcp-unix-plan.md` | 全文 | 「通过向导选择是否同时开启 TCP 端口」 | **整体废弃**：飞牛形态只走网关，需要端口请部署非飞牛版本（§11） |
+| `apps/docs/fnos-gateway-integration-plan.md` | :127 | 「Fiber 路由匹配发生在中间件之前，前缀剥离中间件不可行，必须双注册」 | **错误，已实测推翻**（§3.1） |
+| `apps/docs/fnos-gateway-integration-plan.md` | :40 / :218 / :228 | 「伪造 Header 在普通 TCP 端口路由下无效」 | 在双注册前提下不成立（§2.2） |
+| `apps/docs/dual-listen-tcp-unix-plan.md` | 全文 | 「通过向导选择是否同时开启 TCP 端口」 | **整体废弃**：飞牛形态只走网关，需要端口请部署非飞牛版本（§11） |
 
 ---
 
@@ -128,7 +128,7 @@ curl -H 'X-Trim-Userid: 1' http://<飞牛IP>:23232/api/v1/auth/fnos/login
 - `c.Path(newPath)` 内部执行 `URI().SetPath()` 并重算 `c.path` / `c.detectionPath` / `c.treePath`；
 - handler 里 `c.Next()` 会**再次进入 `app.next(c)`**，用新的 `detectionPath`/`treePath` 重新选桶继续向后遍历。
 
-**实测记录**（`server/middleware/tmp_strip_probe_test.go`，验证后已删除）：
+**实测记录**（`apps/server/middleware/tmp_strip_probe_test.go`，验证后已删除）：
 
 ```go
 app.Use(func(c *fiber.Ctx) error {
@@ -243,7 +243,7 @@ flowchart LR
 
 ## 6. 详细改动
 
-### 6.1 新增 `server/middleware/basepath.go`
+### 6.1 新增 `apps/server/middleware/basepath.go`
 
 ```go
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -335,7 +335,7 @@ func IsGatewayRequest(c *fiber.Ctx) bool {
 > 相比早期版本**移除了 `forceRedirect` 参数与 `isRedirectExempt`**：飞牛形态只有网关入口，
 > 请求恒带前缀，不存在「无前缀访问需要补齐」的场景；非飞牛形态 `prefix` 为空。故无需该开关。
 
-### 6.2 `server/main.go`：调整中间件注册顺序
+### 6.2 `apps/server/main.go`：调整中间件注册顺序
 
 ```go
 	// 全局中间件
@@ -355,7 +355,7 @@ func IsGatewayRequest(c *fiber.Ctx) bool {
 	routes.Register(app, db)
 ```
 
-### 6.3 `server/routes/routes.go`：删除双注册
+### 6.3 `apps/server/routes/routes.go`：删除双注册
 
 1. 删除 `prefixes` 循环，改为单次调用：
 
@@ -421,7 +421,7 @@ func serveFrontendOnce(app *fiber.App) {
 4. 开发态 `serveFrontend` 去掉 `cfg` 参数与前缀分支：`app.Static("/", "./dist")`。
 5. `Register()` 中 `cfg` 仍保留（Service 初始化需要），`config` import 无需删除。
 
-### 6.4 `server/middleware/auth.go`：以连接来源作为信任边界（纵深防御）
+### 6.4 `apps/server/middleware/auth.go`：以连接来源作为信任边界（纵深防御）
 
 ```go
 func GatewayIdentity(c *fiber.Ctx) (fnosUID string, username string, ok bool) {
@@ -443,7 +443,7 @@ func GatewayIdentity(c *fiber.Ctx) (fnosUID string, username string, ok bool) {
 > 移除 TCP 后该问题已根除，此改动属**纵深防御**：成本一行，可防止将来重新引入 TCP、
 > 或 Docker 场景下反向代理注入 `X-Trim-*` 时被误信。
 
-### 6.5 `server/config/config.go`：语义明确化
+### 6.5 `apps/server/config/config.go`：语义明确化
 
 ```go
 type ServerConfig struct {
@@ -458,13 +458,13 @@ type ServerConfig struct {
 ```
 
 - `MAGICMAIL_BASE_PATH` **语义变化**：从「据此双注册带前缀路由」改为「据此剥离前缀」。
-  变量值与注入方式不变（`fnapp/cmd/main` 仍注入 `/app/magicmail`），Docker 仍不设置。
+  变量值与注入方式不变（`apps/fnapp/cmd/main` 仍注入 `/app/magicmail`），Docker 仍不设置。
 - `TCPEnabled` / `TCPAddr` / `listenAndServe` **代码保留、行为不变**，但飞牛侧不再注入（§6.6），
   因此在飞牛形态下恒为 false —— 保留是为了自建部署（如 socket + 本地 TCP）仍可用。
 
 ### 6.6 飞牛侧：移除 TCP 相关能力
 
-#### `fnapp/cmd/main`
+#### `apps/fnapp/cmd/main`
 
 ```bash
     # 飞牛形态只通过统一网关访问（Unix Socket），不再提供 TCP 端口：
@@ -481,7 +481,7 @@ type ServerConfig struct {
 并删除 `start_process()` 中读取 `fnos_listen_mode` / `fnos_tcp_port` 的整段逻辑
 （含端口合法性兜底与 `LISTEN_MODE` 分支）及诊断日志中的 `fnos_listen_mode` 行。
 
-#### `fnapp/wizard/install`
+#### `apps/fnapp/wizard/install`
 
 只保留「欢迎安装」步骤，**删除整个「访问方式设置」步骤**（`listen_mode` radio + `tcp_port` text）：
 
@@ -497,14 +497,14 @@ type ServerConfig struct {
 ]
 ```
 
-#### `fnapp/wizard/config`：**删除文件**
+#### `apps/fnapp/wizard/config`：**删除文件**
 
 删除访问方式后该向导已无任何可配置项（原文件只有 `listen_mode` + `tcp_port` 两个字段），
 因此**整个文件删除**，应用设置页不再提供配置项。
 
 > 飞牛的 `wizard/` 下各向导文件（`install` / `upgrade` / `uninstall` / `config`）均为可选，缺失即表示「无此向导」。
 
-#### `fnapp/cmd/config_callback`：**改为 no-op（保留文件）**
+#### `apps/fnapp/cmd/config_callback`：**改为 no-op（保留文件）**
 
 ```bash
 #!/bin/bash
@@ -519,9 +519,9 @@ exit 0
 > 与 `config_init`（已是 `exit 0`）保持一致。**保留空脚本而非删除**，是因为平台侧流程可能仍会调用它，
 > 缺失文件的风险大于保留一个空实现。
 
-`fnapp/cmd/config_init` 保持现状（已是 `exit 0`）。
+`apps/fnapp/cmd/config_init` 保持现状（已是 `exit 0`）。
 
-#### `fnapp/manifest`
+#### `apps/fnapp/manifest`
 
 `changelog` 顶部补充（并移除上一条关于「同时开启 TCP 端口」的描述）：
 
@@ -535,7 +535,7 @@ exit 0
 
 ### 6.7 socket 权限 0666 → 0660（**必做**）
 
-`server/main.go:142`：
+`apps/server/main.go:142`：
 
 ```go
 _ = os.Chmod(sockPath, 0660) // 原为 0666
@@ -557,7 +557,7 @@ _ = os.Chmod(sockPath, 0660) // 原为 0666
 
 ### 6.8 前端：1 处必修 + 1 处可选
 
-**必修** `web/src/api/request.js:29`（带前缀部署会跳到 NAS 站点根路径）：
+**必修** `apps/web/src/api/request.js:29`（带前缀部署会跳到 NAS 站点根路径）：
 
 ```js
   } else if (window.location.pathname !== '/login') {
@@ -565,7 +565,7 @@ _ = os.Chmod(sockPath, 0660) // 原为 0666
   }
 ```
 
-**已修复（真实构建复现后修复）**：`web/vite.config.js` PWA manifest 图标 `src: '/icons/...'` 是硬编码字符串，
+**已修复（真实构建复现后修复）**：`apps/web/vite.config.js` PWA manifest 图标 `src: '/icons/...'` 是硬编码字符串，
 Vite **不会**给它加 base，导致通过网关访问时浏览器请求 `https://<NAS>/icons/...`（无前缀）
 → 网关不匹配 `gatewayPrefix`、不转发到 socket → 图标 404（PWA 能装能用，仅图标空白）。
 改为 `src: base + 'icons/...'`（3 处）：
@@ -581,23 +581,23 @@ Vite **不会**给它加 base，导致通过网关访问时浏览器请求 `http
 
 | 项 | 结论 |
 |---|---|
-| `fnapp/manifest` 的 `gatewayPrefix` / `gatewaySocket` / `checkport` | 不变（仅 changelog） |
-| `fnapp/app/ui/config` | 不变 |
+| `apps/fnapp/manifest` 的 `gatewayPrefix` / `gatewaySocket` / `checkport` | 不变（仅 changelog） |
+| `apps/fnapp/app/ui/config` | 不变 |
 | `build_fpk.sh` 的 `BASE_URL=/app/magicmail` | **必须保持不变**（§4） |
-| `web/vite.config.js` 的 base 机制 | 不变 |
+| `apps/web/vite.config.js` 的 base 机制 | 不变 |
 | `handlers/auth_handler.go` 的 `/fnos/*` 逻辑 | 不变（只依赖 `GatewayIdentity`） |
 | SSE / PWA / OAuth2 / Webhook | 不变 |
-| `server/main.go` 的 `listenAndServe` / `buildListener` | 不变（飞牛侧不再注入 TCP 变量） |
+| `apps/server/main.go` 的 `listenAndServe` / `buildListener` | 不变（飞牛侧不再注入 TCP 变量） |
 
 ### 6.10 移除后不再需要的东西
 
 | 项 | 处置 |
 |---|---|
 | `MAGICMAIL_FORCE_BASE_PATH` 开关 | **不需要**（早期用于「TCP 无前缀访问 302 补齐」；TCP 入口已移除，网关请求恒带前缀） |
-| `docs/dual-listen-tcp-unix-plan.md` 的验收项中「局域网 `http://<IP>:<PORT>` 可登录」 | 删除 |
-| `fnapp/cmd/main` 中「TCP 端口仅作可选辅助检测」的探活逻辑 | 删除（探活只看 socket） |
-| `fnapp/cmd/config_callback` 的重启逻辑 | 改为 no-op（`exit 0`）：无配置项即无需重启（§6.6） |
-| `fnapp/wizard/config` | **删除文件**：无配置项即无向导（§6.6） |
+| `apps/docs/dual-listen-tcp-unix-plan.md` 的验收项中「局域网 `http://<IP>:<PORT>` 可登录」 | 删除 |
+| `apps/fnapp/cmd/main` 中「TCP 端口仅作可选辅助检测」的探活逻辑 | 删除（探活只看 socket） |
+| `apps/fnapp/cmd/config_callback` 的重启逻辑 | 改为 no-op（`exit 0`）：无配置项即无需重启（§6.6） |
+| `apps/fnapp/wizard/config` | **删除文件**：无配置项即无向导（§6.6） |
 | `fnos_listen_mode` / `fnos_tcp_port` 向导字段 | 一并删除，不再存在于任何向导 |
 
 ### 6.11 对非飞牛构建的影响评估（`build.sh` / Docker / 开发模式）
@@ -609,8 +609,8 @@ Vite **不会**给它加 base，导致通过网关访问时浏览器请求 `http
 | 环节 | 是否注入前缀 | 依据 |
 |---|---|---|
 | `build.sh` | ❌ 不 export `BASE_URL` | 只有 `build_fpk.sh:31` 有 `export BASE_URL=...` |
-| `web/package.json` | ❌ `"build": "vite build"`，未注入 | 同左 |
-| `web/vite.config.js` | → `base = process.env.BASE_URL \|\| '/'` | 非飞牛构建得 `base='/'` |
+| `apps/web/package.json` | ❌ `"build": "vite build"`，未注入 | 同左 |
+| `apps/web/vite.config.js` | → `base = process.env.BASE_URL \|\| '/'` | 非飞牛构建得 `base='/'` |
 | `Dockerfile`（frontend-builder） | ❌ `RUN npm run build`，无 `ENV BASE_URL` | 前端产物无前缀 |
 | `docker-compose.yml` | ❌ 未设置 `MAGICMAIL_BASE_PATH` | 后端 `BasePath=""` |
 | `dev.sh` | ❌ 未设置两者 | 开发态同 Docker |
@@ -644,7 +644,7 @@ Vite **不会**给它加 base，导致通过网关访问时浏览器请求 `http
 ```bash
 # 1. 构建产物确认无前缀
 ./scripts/build.sh linux amd64
-grep -o 'src="[^"]*"' server/dist/index.html | head   # 期望 /assets/... 而非 /app/magicmail/assets/...
+grep -o 'src="[^"]*"' apps/server/dist/index.html | head   # 期望 /assets/... 而非 /app/magicmail/assets/...
 
 # 2. 运行时确认无前缀、无跳转、API 走根路径
 MAGICMAIL_DSN=/tmp/mm2.db ./bin/magicmail &
@@ -678,7 +678,7 @@ docker compose up -d --build && docker inspect --format '{{.State.Health.Status}
 
 ## 8. 测试计划
 
-### 8.1 单元测试：`server/middleware/basepath_test.go`
+### 8.1 单元测试：`apps/server/middleware/basepath_test.go`
 
 ```go
 package middleware
@@ -801,7 +801,7 @@ func TestBasePathNoopForDocker(t *testing.T) {
 ### 8.2 本地冒烟（socket 形态，复刻飞牛部署）
 
 ```bash
-cd server && go build -o /tmp/magicmail .
+cd apps/server && go build -o /tmp/magicmail .
 
 MAGICMAIL_DSN=/tmp/mm.db \
 MAGICMAIL_LISTEN=unix:///tmp/mm.sock \
@@ -885,13 +885,13 @@ MAGICMAIL_BASE_PATH=/app/magicmail \
 
 | 文件 | 位置 | 处理 |
 |---|---|---|
-| `docs/dual-listen-tcp-unix-plan.md` | 全文 | **标注为已废弃**：顶部加「⚠️ 本计划已废弃——飞牛形态只走统一网关（仅 Unix Socket），需要端口访问请部署非飞牛版本。替代方案见 `docs/gateway-prefix-strip-plan.md`」。保留历史内容供追溯，但结论作废 |
-| `docs/fnos-gateway-integration-plan.md` | :115-127（含 :127 注） | 「双前缀注册」整节替换为「前置剥离中间件」；删除「前缀剥离中间件不可行」结论（已实测推翻）；:89 注释同步 |
-| `docs/fnos-gateway-integration-plan.md` | :242（实现记录 1） | 「后端据此双注册」→「后端据此剥离前缀，单套根路由」 |
-| `docs/fnos-gateway-integration-plan.md` | :40 / :218 / :228 | 「伪造 Header 无效」的保障机制由「路由层」改为「连接来源（unix）+ 不监听 TCP」 |
-| `docs/fnos-gateway-integration-plan.md` | :22（监听方式决策） | 补充「飞牛形态仅 Unix Socket，不提供 TCP 端口」 |
-| `docs/config/environment.md`（若存在） | — | 补充 `MAGICMAIL_BASE_PATH` 新语义；`MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR` 标注为「飞牛形态不再使用，仅供自建部署」 |
-| `docs/guide/installation.md`（若涉及端口说明） | — | 说明飞牛版无端口，需端口请用 Docker / 独立版本 |
+| `apps/docs/dual-listen-tcp-unix-plan.md` | 全文 | **标注为已废弃**：顶部加「⚠️ 本计划已废弃——飞牛形态只走统一网关（仅 Unix Socket），需要端口访问请部署非飞牛版本。替代方案见 `apps/docs/gateway-prefix-strip-plan.md`」。保留历史内容供追溯，但结论作废 |
+| `apps/docs/fnos-gateway-integration-plan.md` | :115-127（含 :127 注） | 「双前缀注册」整节替换为「前置剥离中间件」；删除「前缀剥离中间件不可行」结论（已实测推翻）；:89 注释同步 |
+| `apps/docs/fnos-gateway-integration-plan.md` | :242（实现记录 1） | 「后端据此双注册」→「后端据此剥离前缀，单套根路由」 |
+| `apps/docs/fnos-gateway-integration-plan.md` | :40 / :218 / :228 | 「伪造 Header 无效」的保障机制由「路由层」改为「连接来源（unix）+ 不监听 TCP」 |
+| `apps/docs/fnos-gateway-integration-plan.md` | :22（监听方式决策） | 补充「飞牛形态仅 Unix Socket，不提供 TCP 端口」 |
+| `apps/docs/config/environment.md`（若存在） | — | 补充 `MAGICMAIL_BASE_PATH` 新语义；`MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR` 标注为「飞牛形态不再使用，仅供自建部署」 |
+| `apps/docs/guide/installation.md`（若涉及端口说明） | — | 说明飞牛版无端口，需端口请用 Docker / 独立版本 |
 
 ---
 
@@ -902,22 +902,22 @@ MAGICMAIL_BASE_PATH=/app/magicmail \
 | 步骤 | 文件 | 内容 | 状态 |
 |---|---|---|---|
 | §6.0 | 临时 `tmp_strip_probe_test.go` | Fiber 剥离机制验证：`status=200 body="pong:/api/v1/ping"` | ✅ 通过，验证后已删除 |
-| §6.1 | `server/middleware/basepath.go` | 新增前缀剥离中间件（`BasePath` / `GetBasePath` / `IsGatewayRequest`） | ✅ |
-| §8.1 | `server/middleware/basepath_test.go` | 3 个用例：剥离边界、网关身份信任边界、非飞牛空前缀 no-op | ✅ `go test ./middleware/` 全绿 |
-| §6.5 | `server/config/config.go` | `BasePath` 语义注释；`TCPEnabled`/`TCPAddr` 标注「飞牛不再使用」 | ✅ |
-| §6.4 | `server/middleware/auth.go` | `GatewayIdentity` 以连接来源为信任边界（纵深防御） | ✅ |
-| §6.2 | `server/main.go` | 在所有路由前插入 `app.Use(middleware.BasePath(...))` | ✅ |
-| §6.3 | `server/routes/routes.go` | 删除双注册；静态资源简化为直接读 `embed.FS`；开发态 `serveFrontend` 简化 | ✅ |
-| §6.8 | `web/src/api/request.js` | `/login` 兜底跳转改用 `import.meta.env.BASE_URL` | ✅ |
-| §6.8 | `web/vite.config.js` | PWA manifest 图标 `src` 拼接 `base`（修复网关下图标 404） | ✅ 双形态已验证 |
-| §6.6 | `fnapp/cmd/main` | 移除 `fnos_listen_mode`/`fnos_tcp_port` 逻辑，固定 socket + 显式 `unset` TCP 变量 | ✅ |
-| §6.6 | `fnapp/wizard/install` | 只保留欢迎步骤，删除「访问方式设置」 | ✅ |
-| §6.6 | `fnapp/wizard/config` | **删除文件**（无配置项） | ✅ |
-| §6.6 | `fnapp/cmd/config_callback` | 改为 no-op `exit 0`（保留文件） | ✅ |
-| §6.6 | `fnapp/manifest` | changelog 更新为三条 | ✅ |
-| §6.7 | `server/main.go` | socket 权限 `0666` → `0660`（独立变更，便于回退） | ✅ 待真机验证 |
-| §11 | `docs/dual-listen-tcp-unix-plan.md` | 顶部标注已废弃 + 回滚说明 | ✅ |
-| §11 | `docs/fnos-gateway-integration-plan.md` | 顶部修订声明；§2.2 前缀剥离设计；安全红线、监听方式、实现记录订正 | ✅ |
+| §6.1 | `apps/server/middleware/basepath.go` | 新增前缀剥离中间件（`BasePath` / `GetBasePath` / `IsGatewayRequest`） | ✅ |
+| §8.1 | `apps/server/middleware/basepath_test.go` | 3 个用例：剥离边界、网关身份信任边界、非飞牛空前缀 no-op | ✅ `go test ./middleware/` 全绿 |
+| §6.5 | `apps/server/config/config.go` | `BasePath` 语义注释；`TCPEnabled`/`TCPAddr` 标注「飞牛不再使用」 | ✅ |
+| §6.4 | `apps/server/middleware/auth.go` | `GatewayIdentity` 以连接来源为信任边界（纵深防御） | ✅ |
+| §6.2 | `apps/server/main.go` | 在所有路由前插入 `app.Use(middleware.BasePath(...))` | ✅ |
+| §6.3 | `apps/server/routes/routes.go` | 删除双注册；静态资源简化为直接读 `embed.FS`；开发态 `serveFrontend` 简化 | ✅ |
+| §6.8 | `apps/web/src/api/request.js` | `/login` 兜底跳转改用 `import.meta.env.BASE_URL` | ✅ |
+| §6.8 | `apps/web/vite.config.js` | PWA manifest 图标 `src` 拼接 `base`（修复网关下图标 404） | ✅ 双形态已验证 |
+| §6.6 | `apps/fnapp/cmd/main` | 移除 `fnos_listen_mode`/`fnos_tcp_port` 逻辑，固定 socket + 显式 `unset` TCP 变量 | ✅ |
+| §6.6 | `apps/fnapp/wizard/install` | 只保留欢迎步骤，删除「访问方式设置」 | ✅ |
+| §6.6 | `apps/fnapp/wizard/config` | **删除文件**（无配置项） | ✅ |
+| §6.6 | `apps/fnapp/cmd/config_callback` | 改为 no-op `exit 0`（保留文件） | ✅ |
+| §6.6 | `apps/fnapp/manifest` | changelog 更新为三条 | ✅ |
+| §6.7 | `apps/server/main.go` | socket 权限 `0666` → `0660`（独立变更，便于回退） | ✅ 待真机验证 |
+| §11 | `apps/docs/dual-listen-tcp-unix-plan.md` | 顶部标注已废弃 + 回滚说明 | ✅ |
+| §11 | `apps/docs/fnos-gateway-integration-plan.md` | 顶部修订声明；§2.2 前缀剥离设计；安全红线、监听方式、实现记录订正 | ✅ |
 
 **验证情况**：`go build ./...` 通过（BUILD_OK）；本次改动文件全部通过 `gofmt`。
 `go vet` 仅有 `pop3/client.go:34` 的 IPv6 预存告警，与本次无关。
@@ -935,13 +935,13 @@ MAGICMAIL_BASE_PATH=/app/magicmail \
 
 1. **§8.2 本地 socket 冒烟 9 条**：需在允许启动后台进程的环境执行，脚本见下。
 2. **§8.3 真机验收**：重点是 `app.sock` 权限 `srw-rw----` 下网关仍能正常访问（0660 关键验证），
-   失败即回退 `0666`（`server/main.go` 中 `os.Chmod(sockPath, 0660)`）。
+   失败即回退 `0666`（`apps/server/main.go` 中 `os.Chmod(sockPath, 0660)`）。
 3. **§6.11 非飞牛构建回归**：`./scripts/build.sh linux amd64` + Docker 健康检查。
 
 ### 12.4 冒烟脚本（供人工执行）
 
 ```bash
-cd server && mkdir -p data
+cd apps/server && mkdir -p data
 go build -o ../bin/magicmail .
 
 MAGICMAIL_DSN="$PWD/data/mm-test.db" \

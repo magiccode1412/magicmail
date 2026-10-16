@@ -165,7 +165,7 @@ export MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID="a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 ### 方式 C：修改源码默认值
 
-编辑服务端源码 `server/oauth2/microsoft.go`，修改常量：
+编辑服务端源码 `apps/server/oauth2/microsoft.go`，修改常量：
 
 ```go
 const microsoftDefaultClientID = "你的实际 Client ID"

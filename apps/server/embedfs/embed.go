@@ -10,5 +10,5 @@ import "embed"
 //go:embed all:dist
 // DistFS 嵌入前端构建产物
 //
-// 生产构建前请先执行: cd web && pnpm build（或 npm run build）
+// 生产构建前请先执行: cd apps/web && pnpm build（或 npm run build）
 var DistFS embed.FS

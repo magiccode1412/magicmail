@@ -22,9 +22,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = __dirname
 
 // ============ 配置 ============
-const PACKAGE_JSON_PATH = join(ROOT, 'web', 'package.json')
+const PACKAGE_JSON_PATH = join(ROOT, 'apps', 'web', 'package.json')
 const VERSION_JSON_PATH = join(ROOT, 'version.json')        // 发布到 EdgeOne Pages 的版本文件
-const CHANGELOG_PATH = join(ROOT, 'docs', 'guide', 'changelog.md')
+const CHANGELOG_PATH = join(ROOT, 'apps', 'docs', 'guide', 'changelog.md')
 
 // 项目地址配置
 const PROJECT_CONFIG = {

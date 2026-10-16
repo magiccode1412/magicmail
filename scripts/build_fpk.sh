@@ -15,11 +15,11 @@
 #
 # 流程:
 # 1. 执行 scripts/build.sh linux <amd64|arm64> 单平台构建
-# 2. 复制产物到 fnapp/app/server/
-# 3. 按目标架构改写 fnapp/manifest 的 platform，并给 version 追加时间戳
+# 2. 复制产物到 apps/fnapp/app/server/
+# 3. 按目标架构改写 apps/fnapp/manifest 的 platform，并给 version 追加时间戳
 #    （构建结束后自动还原，不会污染 git 跟踪的 manifest）
 # 4. 进入 fnapp 目录执行 fnpack build，产物重命名为
-#    fnapp/magicmail-<version>-<arch>.fpk
+#    apps/fnapp/magicmail-<version>-<arch>.fpk
 # ============================================================================
 
 set -euo pipefail
@@ -36,8 +36,8 @@ NC='\033[0m'
 # 项目根目录（脚本在 scripts/ 下，根目录是上一级）
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${ROOT}/bin"
-FNAPP_SERVER_DIR="${ROOT}/fnapp/app/server"
-FNAPP_DIR="${ROOT}/fnapp"
+FNAPP_SERVER_DIR="${ROOT}/apps/fnapp/app/server"
+FNAPP_DIR="${ROOT}/apps/fnapp"
 BINARY_NAME="magicmail"
 
 # ── 目标架构（默认 x86，可传 arm64）────────────────
@@ -85,12 +85,12 @@ trap 'restore_manifest; exit 130' INT
 trap 'restore_manifest; exit 143' TERM
 
 # 飞牛统一网关基础路径前缀。
-# 必须与 fnapp/manifest 的 gatewayPrefix、fnapp/cmd/main 注入的
+# 必须与 apps/fnapp/manifest 的 gatewayPrefix、apps/fnapp/cmd/main 注入的
 # MAGICMAIL_BASE_PATH 保持一致（默认 /app/magicmail）。
 # 允许外部环境变量覆盖（如构建其他前缀的子路径部署）。
 export BASE_URL="${BASE_URL:-/app/magicmail}"
 
-# 后端运行时基础路径（仅用于文档/校验提示；实际由 fnapp/cmd/main 在
+# 后端运行时基础路径（仅用于文档/校验提示；实际由 apps/fnapp/cmd/main 在
 # 运行时注入 MAGICMAIL_BASE_PATH，这里保持一致以便人工核对）。
 FNAS_BACKEND_BASE_PATH="/app/magicmail"
 
@@ -130,9 +130,9 @@ step1_build() {
     echo -e "${GREEN}  ✅ 单平台构建完成${NC}"
 }
 
-# Step 2: 复制产物到 fnapp/app/server/
+# Step 2: 复制产物到 apps/fnapp/app/server/
 step2_copy() {
-    echo -e "${BLUE}▶ [Step 2/4] 复制 ${BINARY_NAME} 到 fnapp/app/server/...${NC}"
+    echo -e "${BLUE}▶ [Step 2/4] 复制 ${BINARY_NAME} 到 apps/fnapp/app/server/...${NC}"
     
     mkdir -p "${FNAPP_SERVER_DIR}"
     

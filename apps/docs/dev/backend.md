@@ -7,7 +7,7 @@
 go version
 
 # 安装依赖
-cd server
+cd apps/server
 go mod download
 
 # 运行
@@ -17,7 +17,7 @@ go run .
 ## 目录职责说明
 
 ```
-server/
+apps/server/
 ├── main.go              # 应用入口：加载配置 → 初始化DB → 注册路由 → 启动Fiber
 ├── config/
 │   └── config.go        # 从环境变量读取配置，提供默认值
@@ -62,7 +62,7 @@ server/
 ### 1. 定义 Model
 
 ```go
-// server/models/tag.go
+// apps/server/models/tag.go
 type Tag struct {
     ID        uint   `gorm:"primaryKey"`
     Name      string `gorm:"uniqueIndex;not null;size:50"`
@@ -80,7 +80,7 @@ db.AutoMigrate(&Tag{})
 ### 2. 编写 Service
 
 ```go
-// server/services/tag_service.go
+// apps/server/services/tag_service.go
 func CreateTag(db *gorm.DB, name, color string) (*Tag, error) {
     tag := Tag{Name: name, Color: color}
     if err := db.Create(&tag).Error; err != nil {
@@ -93,7 +93,7 @@ func CreateTag(db *gorm.DB, name, color string) (*Tag, error) {
 ### 3. 编写 Handler
 
 ```go
-// server/handlers/tag_handler.go
+// apps/server/handlers/tag_handler.go
 func CreateTag(c *fiber.Ctx) error {
     var req struct {
         Name  string `json:"name"`
@@ -115,7 +115,7 @@ func CreateTag(c *fiber.Ctx) error {
 ### 4. 注册路由
 
 ```go
-// server/routes/routes.go
+// apps/server/routes/routes.go
 api.Post("/tags", tag_handler.CreateTag)
 ```
 

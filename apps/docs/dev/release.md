@@ -24,12 +24,12 @@
 
 | 文件 | 字段 | 用途 | `version.js` 是否自动更新 |
 |------|------|------|--------------------------|
-| `web/package.json` | `version` | 前端 `__APP_VERSION__`，页面显示与更新检测比对 | ✅ |
+| `apps/web/package.json` | `version` | 前端 `__APP_VERSION__`，页面显示与更新检测比对 | ✅ |
 | `version.json` | `latest` | 更新检测的远端版本号，部署到 EdgeOne Pages | ✅ |
-| `docs/guide/changelog.md` | `## [vX.Y.Z]` | **Release 正文的唯一来源** | ✅ 只加标题，内容需手填 |
-| `fnapp/manifest` | `version` | FPK 包内版本，飞牛应用中心识别 | ❌ **必须手动改** |
+| `apps/docs/guide/changelog.md` | `## [vX.Y.Z]` | **Release 正文的唯一来源** | ✅ 只加标题，内容需手填 |
+| `apps/fnapp/manifest` | `version` | FPK 包内版本，飞牛应用中心识别 | ❌ **必须手动改** |
 
-> **注意**：`node version.js` 不会更新 `fnapp/manifest`。升版本后请手动同步，否则会出现「文件名是 `magicmail-1.2.0-x86.fpk`、包内版本却是 1.1.1」的不一致，飞牛应用中心会拒绝覆盖安装。
+> **注意**：`node version.js` 不会更新 `apps/fnapp/manifest`。升版本后请手动同步，否则会出现「文件名是 `magicmail-1.2.0-x86.fpk`、包内版本却是 1.1.1」的不一致，飞牛应用中心会拒绝覆盖安装。
 
 ### 升版本号
 
@@ -41,8 +41,8 @@ node version.js --current                       # 查看当前版本
 
 执行后会更新上表前三处。随后**必须**手工完成两件事：
 
-1. 把 `fnapp/manifest` 的 `version` 改成同一个版本号
-2. 把 `docs/guide/changelog.md` 里新增的 `## [vX.Y.Z]` 条目内容补全（分类写「安全 / 重构 / 新增 / 修复」）
+1. 把 `apps/fnapp/manifest` 的 `version` 改成同一个版本号
+2. 把 `apps/docs/guide/changelog.md` 里新增的 `## [vX.Y.Z]` 条目内容补全（分类写「安全 / 重构 / 新增 / 修复」）
 
 `version.js` 最后会提示 `git tag` 和 `git push --tags`，**按本文档的流程走时忽略它的提示** —— tag 要打在 `main` 上而不是当前分支，且 `version.json` 必须最后部署。
 
@@ -56,7 +56,7 @@ node version.js --current                       # 查看当前版本
         │  git commit
         ▼
   node version.js minor ──────►  git checkout main
-  改 fnapp/manifest                git merge dev        ← 代码冻结
+  改 apps/fnapp/manifest                git merge dev        ← 代码冻结
         │                          git push origin main
         │                                │
         │                                ▼
@@ -298,7 +298,7 @@ bash scripts/verify-build.sh
 
 ### Release 正文来自 `changelog.md`
 
-正文由 `release.yml` 从 `docs/guide/changelog.md` 中提取 `## [vX.Y.Z]` 到下一个 `## [` 之间的内容。
+正文由 `release.yml` 从 `apps/docs/guide/changelog.md` 中提取 `## [vX.Y.Z]` 到下一个 `## [` 之间的内容。
 
 **不用 `git log` 自动生成的原因**：`main` 只在发版时接收 `dev` 合并，历史很短。`git describe --tags HEAD^` 取到的是 merge commit 的第一个父，此时 `dev` 上的几十个提交对它不可达，自动生成的 changelog 只有一两条。
 
@@ -340,7 +340,7 @@ bash scripts/verify-build.sh
 
 ### 飞牛 FPK
 
-- [ ] 两个架构包都已产出，且**包内版本与文件名版本一致**（`fnapp/manifest` 的 `version` 已同步）
+- [ ] 两个架构包都已产出，且**包内版本与文件名版本一致**（`apps/fnapp/manifest` 的 `version` 已同步）
 - [ ] 实机安装后通过网关访问不白屏（CI 会校验 `/app/magicmail` 前缀，但实机验证更稳妥）
 
 ## 常见问题
@@ -356,7 +356,7 @@ bash scripts/verify-build.sh
 在 cnb 的 `main` 分支详情页点「重建最新版本」按钮，GitHub 侧在 Actions 手动重跑 Build & Release。两侧都要做，否则产物不一致。详见[不升版本号重建产物](#不升版本号重建产物)。
 
 **Release 正文只有一条「本次无详细变更记录」**
-`docs/guide/changelog.md` 里缺少 `## [vX.Y.Z]` 条目，或标题格式不匹配（必须是 `## [v1.2.0]` 这种方括号包裹、带 `v` 前缀的写法）。
+`apps/docs/guide/changelog.md` 里缺少 `## [vX.Y.Z]` 条目，或标题格式不匹配（必须是 `## [v1.2.0]` 这种方括号包裹、带 `v` 前缀的写法）。
 
 **`latest` 镜像没更新**
 只有正式版 tag 才会推送 `latest`/`1.2`/`1`。如果构建成功但标签缺失，用 `workflow_dispatch` 手动重跑并填写 `image_tag`。
@@ -365,7 +365,7 @@ bash scripts/verify-build.sh
 `version.json` 部署早于 Release 发布。部署前先确认 `downloadUrl` 指向的 Release 页面已存在。
 
 **FPK 装不上，提示版本问题**
-`fnapp/manifest` 的 `version` 没跟着升，或与目标设备上已安装版本相同导致拒绝覆盖。
+`apps/fnapp/manifest` 的 `version` 没跟着升，或与目标设备上已安装版本相同导致拒绝覆盖。
 
 ## 文档站部署
 
@@ -374,7 +374,7 @@ bash scripts/verify-build.sh
 | 渠道 | 定位 | 触发方式 |
 |------|------|----------|
 | EdgeOne | 主用 | 关联仓库后自动部署，日常无需干预 |
-| GitHub Pages | 保底 | `deploy.yml` 在 `main` 分支有 `docs/**` 变更时自动部署 |
+| GitHub Pages | 保底 | `deploy.yml` 在 `main` 分支有 `apps/docs/**` 变更时自动部署 |
 
 GitHub Pages 走官方 Pages Action（`configure-pages` → `upload-pages-artifact` → `deploy-pages`），
 直接上传构建产物，**不使用 `gh-pages` 分支**。
@@ -400,12 +400,12 @@ EdgeOne 按推送分支分别构建，`main` 出正式版、`dev` 出预览版�
 
 > `noindex` 是必须的：预览站对外可访问，否则未发布的 changelog 会先被搜索引擎收录。
 
-判定逻辑在 `docs/.vitepress/channel.ts`，优先级从高到低：
+判定逻辑在 `apps/docs/.vitepress/channel.ts`，优先级从高到低：
 
 1. `DOCS_CHANNEL` 环境变量显式指定（`dev` / `stable`）
 2. CI 分支变量（`GITHUB_REF_NAME` / `CNB_BRANCH` / 各 Pages 平台的分支变量）
 3. `.git/HEAD` 当前分支名
-4. 兜底推断：`docs/guide/changelog.md` 顶格版本领先 `version.json` 的 `latest` → `dev`
+4. 兜底推断：`apps/docs/guide/changelog.md` 顶格版本领先 `version.json` 的 `latest` → `dev`
 5. 都拿不到 → `stable`（保守默认，正式站不会误挂「开发版」标识）
 
 构建日志会打印判定结果，排查时看这两行：
@@ -424,7 +424,7 @@ GitHub Pages 已在 `deploy.yml` 的 `env` 中固定为 `stable`（该工作流�
 **本地预览**两种渠道：
 
 ```bash
-cd docs
+cd apps/docs
 
 pnpm dev                      # 按当前分支判定（在 dev 分支上就是开发版）
 DOCS_CHANNEL=stable pnpm dev  # 强制按正式版预览

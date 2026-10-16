@@ -22,7 +22,7 @@
 
 ```
 magicmail/
-├── server/                  # Go 后端
+├── apps/server/                  # Go 后端
 │   ├── main.go              # 入口：初始化 DB / 路由 / VAPID / 启动服务
 │   ├── config/              # 配置加载（环境变量）
 │   ├── crypto/              # 加密工具（AES-256-GCM, VAPID 密钥管理）
@@ -40,7 +40,7 @@ magicmail/
 │   ├── notifier/            # Webhook 通知引擎 + Push 回调
 │   └── embedfs/             # //go:embed 嵌入前端产物
 │
-├── web/                     # Vue3 前端
+├── apps/web/                     # Vue3 前端
 │   ├── src/
 │   │   ├── views/           # 页面组件
 │   │   ├── components/      # 通用组件
@@ -51,9 +51,9 @@ magicmail/
 │   │   └── styles/          # CSS 变量 / 全局样式
 │   └── vite.config.js       # Vite + PWA 配置
 │
-├── fnapp/                   # 飞牛 fnOS 应用配置
+├── apps/fnapp/                   # 飞牛 fnOS 应用配置
 ├── scripts/                 # 构建 / 发版 / 部署脚本
-├── docs/                    # 本文档站 (VitePress)
+├── apps/docs/                    # 本文档站 (VitePress)
 └── README.md                # 项目说明
 ```
 
@@ -64,8 +64,8 @@ magicmail/
 ./scripts/dev.sh start
 
 # 方式二：手动启动
-cd server && go run .          # 终端 1
-cd web && pnpm dev             # 终端 2
+cd apps/server && go run .          # 终端 1
+cd apps/web && pnpm dev             # 终端 2
 ```
 
 ## 开发规范
@@ -74,18 +74,18 @@ cd web && pnpm dev             # 终端 2
 - 遵循分层架构：Handler → Service → Model
 - 错误使用统一的 code/message 格式
 - 所有公开 API 需要 JWT 鉴权
-- 新增 API 端点需同步更新 `docs/api/` 下对应文档
+- 新增 API 端点需同步更新 `apps/docs/api/` 下对应文档
 
 ### 前端 (Vue)
 - 使用 `<script setup>` 和 Composition API
 - 组件命名采用 PascalCase
 - 样式使用 CSS 变量，避免硬编码颜色值
-- 新增 composable 放置在 `web/src/composables/` 目录
+- 新增 composable 放置在 `apps/web/src/composables/` 目录
 
 ### 新增模块指南
-1. **后端新模块**：创建 `server/<module>/` 目录，实现 Service → Handler，在 `routes.go` 注册路由
+1. **后端新模块**：创建 `apps/server/<module>/` 目录，实现 Service → Handler，在 `routes.go` 注册路由
 2. **前端新功能**：创建 View 组件，注册路由，必要时新增 Store 或 Composable
-3. **文档更新**：API 变更需更新 `docs/api/`，架构变更需更新 `docs/dev/architecture.md`
+3. **文档更新**：API 变更需更新 `apps/docs/api/`，架构变更需更新 `apps/docs/dev/architecture.md`
 
 ## 下一步
 

@@ -115,7 +115,7 @@ export MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID="your-client-id-here"
 
 ### 方式 B：修改源码默认值
 
-编辑 `server/oauth2/microsoft.go`:
+编辑 `apps/server/oauth2/microsoft.go`:
 
 ```go
 const microsoftDefaultClientID = "YOUR_ACTUAL_CLIENT_ID_HERE"
@@ -229,15 +229,15 @@ grep "RefreshToken" magicmail.log
 
 当前架构预留了 Google Gmail 和 Yahoo 的扩展能力。添加新的 OAuth2 Provider 只需：
 
-1. 在 `server/oauth2/` 创建 `google.go`，实现 `OAuth2Provider` 接口
-2. 在 `server/routes/routes.go` 注册路由
-3. 在 `web/src/data/providers.js` 更新提供商数据
+1. 在 `apps/server/oauth2/` 创建 `google.go`，实现 `OAuth2Provider` 接口
+2. 在 `apps/server/routes/routes.go` 注册路由
+3. 在 `apps/web/src/data/providers.js` 更新提供商数据
 4. 前端组件自动适配（通过 `oauthRequired` 和 `oauthProvider` 字段）
 
 ### 示例：添加 Gmail 支持
 
 ```go
-// server/oauth2/google.go
+// apps/server/oauth2/google.go
 package oauth2
 
 type GoogleProvider struct{}
@@ -265,13 +265,13 @@ func (p *GoogleProvider) EnvVarName() string { return "MAGICMAIL_OAUTH_GOOGLE_CL
 
 | 文件 | 说明 |
 |------|------|
-| `server/oauth2/types.go` | 类型定义 |
-| `server/oauth2/provider.go` | 接口 + 注册中心 |
-| `server/oauth2/microsoft.go` | Microsoft 实现（scope、端点、Token 刷新） |
-| `server/oauth2/xoauth2.go` | XOAUTH2 工具函数 |
-| `server/handlers/oauth_handler.go` | API Handler |
-| `server/imap/client.go` | IMAP XOAUTH2 认证集成（XOAUTH2Client） |
-| `web/src/components/WizardOAuth2Flow.vue` | 前端授权交互 UI |
-| `web/src/components/WizardStepConfig.vue` | 配置步骤（含自定义 Client ID 高级选项） |
-| `web/src/api/account.js` | 前端 OAuth2 API 函数 |
-| `web/src/data/providers.js` | 服务商预设数据 |
+| `apps/server/oauth2/types.go` | 类型定义 |
+| `apps/server/oauth2/provider.go` | 接口 + 注册中心 |
+| `apps/server/oauth2/microsoft.go` | Microsoft 实现（scope、端点、Token 刷新） |
+| `apps/server/oauth2/xoauth2.go` | XOAUTH2 工具函数 |
+| `apps/server/handlers/oauth_handler.go` | API Handler |
+| `apps/server/imap/client.go` | IMAP XOAUTH2 认证集成（XOAUTH2Client） |
+| `apps/web/src/components/WizardOAuth2Flow.vue` | 前端授权交互 UI |
+| `apps/web/src/components/WizardStepConfig.vue` | 配置步骤（含自定义 Client ID 高级选项） |
+| `apps/web/src/api/account.js` | 前端 OAuth2 API 函数 |
+| `apps/web/src/data/providers.js` | 服务商预设数据 |

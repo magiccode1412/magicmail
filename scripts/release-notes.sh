@@ -4,7 +4,7 @@
 #
 # 依赖环境变量：APP_VERSION（由 release-guard.sh 导出）
 #
-# 优先取 docs/guide/changelog.md 中对应版本的条目。
+# 优先取 apps/docs/guide/changelog.md 中对应版本的条目。
 # 不直接用 git log 的原因：main 只在发版时接收 dev 的合并，历史很短，
 # 自动生成只能覆盖到 merge commit，内容严重缺失。
 # changelog.md 里没有对应条目时才回退到 git log。
@@ -19,7 +19,7 @@ BASE="${VERSION%%-*}"          # v1.2.0-rc.1 → v1.2.0
 NOTES_FILE="release-notes.md"
 
 NOTES=""
-if [ -f docs/guide/changelog.md ]; then
+if [ -f apps/docs/guide/changelog.md ]; then
   NOTES="$(awk -v base="${BASE}" '
     BEGIN { want = "## [" base "]" }
     !found && index($0, want) == 1 {
@@ -33,12 +33,12 @@ if [ -f docs/guide/changelog.md ]; then
       while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
       for (i = 1; i <= n; i++) print lines[i]
     }
-  ' docs/guide/changelog.md)"
+  ' apps/docs/guide/changelog.md)"
 fi
 
 # 回退到 git log
 if [ -z "${NOTES}" ]; then
-  echo "::warning::docs/guide/changelog.md 中未找到 ${BASE} 条目，回退到 git log"
+  echo "::warning::apps/docs/guide/changelog.md 中未找到 ${BASE} 条目，回退到 git log"
   PREV_TAG="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')"
   if [ -n "${PREV_TAG}" ]; then
     NOTES="$(git log --no-merges --pretty='%h%x09%s' "${PREV_TAG}..HEAD" \

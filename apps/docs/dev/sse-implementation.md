@@ -8,7 +8,7 @@
 - **原代码**: `idleLoop()` 只等待超时/停止信号，未监听 IMAP 服务器推送通道
 - **影响**: IDLE 模式形同虚设，新邮件只能靠定时轮询发现（最长延迟 25 分钟）
 
-**修复方案 (`server/imap/worker.go`):**
+**修复方案 (`apps/server/imap/worker.go`):**
 ```go
 // 修复前: 只监听超时和停止信号
 select {
@@ -52,7 +52,7 @@ SSE Broker (发布-订阅)
 
 #### 新建文件
 
-##### `server/sse/broker.go` - 事件广播中心
+##### `apps/server/sse/broker.go` - 事件广播中心
 - **数据结构:**
   ```go
   type Broker struct {
@@ -73,7 +73,7 @@ SSE Broker (发布-订阅)
   - 广播通道满时丢弃旧事件（防止阻塞 Worker）
   - 客户端响应慢自动断开（避免内存泄漏）
 
-##### `server/sse/handler.go` - HTTP 端点处理器
+##### `apps/server/sse/handler.go` - HTTP 端点处理器
 
 - **StreamHandler** - `GET /api/v1/mails/stream`
   ```
@@ -133,7 +133,7 @@ sse.PublishMailReceived(w.account.ID, w.account.Email, count, mailList)
 
 ### 4. ✅ 前端实时更新
 
-#### 新建文件: `web/src/composables/useSSE.js`
+#### 新建文件: `apps/web/src/composables/useSSE.js`
 
 **核心功能:**
 ```javascript
@@ -164,7 +164,7 @@ export function useMailStream(onUpdate, extraOptions = {}) {
 - 连续错误达到 5 次后自动回退到轮询模式 (`connectionMode = 'polling'`)
 - `reconnect()` 手动重连可从轮询模式恢复 SSE
 
-#### 修改文件: `web/src/views/MailListView.vue`
+#### 修改文件: `apps/web/src/views/MailListView.vue`
 
 **变更对比:**
 
@@ -293,10 +293,10 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 
 ### 编译检查
 ```bash
-cd server && go build -o /dev/null .
+cd apps/server && go build -o /dev/null .
 # 输出: ✅ 成功 (0 errors)
 
-cd web && pnpm build
+cd apps/web && pnpm build
 # 输出: ✅ 前端构建成功
 ```
 
@@ -332,33 +332,33 @@ cd web && pnpm build
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|----------|------|
-| `server/imap/worker.go` | 🔧 修改 | IDLE Wait() 修复 + SSE 事件发布 |
-| `server/sse/broker.go` | 🆕 新建 | 事件广播中心（按用户隔离） |
-| `server/sse/handler.go` | 🆕 新建 | SSE 端点处理器 + 各类 `Publish*` 便捷函数 |
-| `server/main.go` | 🔧 修改 | 初始化 SSE Broker |
-| `server/routes/routes.go` | 🔧 修改 | 注册 SSE 路由 |
-| `web/src/composables/useSSE.js` | 🆕 新建 | SSE composable（所有事件监听） |
-| `web/src/views/MailListView.vue` | 🔧 修改 | 集成 SSE 推送 |
+| `apps/server/imap/worker.go` | 🔧 修改 | IDLE Wait() 修复 + SSE 事件发布 |
+| `apps/server/sse/broker.go` | 🆕 新建 | 事件广播中心（按用户隔离） |
+| `apps/server/sse/handler.go` | 🆕 新建 | SSE 端点处理器 + 各类 `Publish*` 便捷函数 |
+| `apps/server/main.go` | 🔧 修改 | 初始化 SSE Broker |
+| `apps/server/routes/routes.go` | 🔧 修改 | 注册 SSE 路由 |
+| `apps/web/src/composables/useSSE.js` | 🆕 新建 | SSE composable（所有事件监听） |
+| `apps/web/src/views/MailListView.vue` | 🔧 修改 | 集成 SSE 推送 |
 
 ### 改造计划增量（见 `sse-improvement-plan.md`，P0 ~ P2）
 
 | 文件路径 | 变更类型 | 说明 |
 |---------|----------|------|
-| `server/sse/handler.go` | 🔧 修改 | 新增 `PublishOAuthAuthorized/Expired`、`PublishAccountSync*`、`PublishAccount*`、`PublishWebhook*`、`PublishStatsUpdated`、`PublishAccountHealth`、`PublishUser*` |
-| `server/sse/broker.go` | 🔧 修改 | 新增历史事件缓冲与 `ReplayHistory`/`appendHistory`，新连接回放近期事件 |
-| `server/handlers/mail_handler.go` | 🔧 修改 | `PublishMailSent` 已存在；`mail.synced` 补全 `account_id` |
-| `server/handlers/user_handler.go` | 🔧 修改 | 用户创建/删除后广播 `user.created`/`user.deleted` |
-| `server/handlers/account_handler.go` | 🔧 修改 | `TriggerSync` 发 `sync_started`；增删改/状态变更发 `account.*` |
-| `server/handlers/oauth_handler.go` | 🔧 修改 | 设备码授权改服务端轮询，完成/过期发 `oauth.*` |
-| `server/oauth2/types.go` | 🔧 修改 | `TokenResponse` 补 `IDToken` 字段（修复编译阻塞） |
-| `server/services/mail_service.go` | 🔧 修改 | 新增 `GetMailAccountID` 用于补 `account_id` |
-| `server/imap/worker.go` | 🔧 修改 | `AccountWorker.manualSync` 标志；`syncOnce` 发 `sync_done/error` 与 `stats.updated` |
-| `server/notifier/notifier.go` | 🔧 修改 | Webhook 投递结果发 `webhook.delivered/failed` |
-| `web/src/composables/useSSE.js` | 🔧 修改 | 新增 `mail.sent`、`oauth.*`、`account.sync_*`、`account.*`、`webhook.*`、`stats.updated` 监听 |
-| `web/src/components/WizardOAuth2Flow.vue` | 🔧 修改 | 去 `setInterval` 轮询，改用 SSE 监听授权完成 |
-| `web/src/views/AccountManage.vue` | 🔧 修改 | 订阅同步进度与账号生命周期事件，多标签页一致 |
-| `web/src/views/SettingsView.vue` | 🔧 修改 | 订阅 Webhook 投递结果 |
-| `web/src/components/AppSidebar.vue` | 🔧 修改 | 订阅 `stats.updated` 实时刷新未读角标 |
+| `apps/server/sse/handler.go` | 🔧 修改 | 新增 `PublishOAuthAuthorized/Expired`、`PublishAccountSync*`、`PublishAccount*`、`PublishWebhook*`、`PublishStatsUpdated`、`PublishAccountHealth`、`PublishUser*` |
+| `apps/server/sse/broker.go` | 🔧 修改 | 新增历史事件缓冲与 `ReplayHistory`/`appendHistory`，新连接回放近期事件 |
+| `apps/server/handlers/mail_handler.go` | 🔧 修改 | `PublishMailSent` 已存在；`mail.synced` 补全 `account_id` |
+| `apps/server/handlers/user_handler.go` | 🔧 修改 | 用户创建/删除后广播 `user.created`/`user.deleted` |
+| `apps/server/handlers/account_handler.go` | 🔧 修改 | `TriggerSync` 发 `sync_started`；增删改/状态变更发 `account.*` |
+| `apps/server/handlers/oauth_handler.go` | 🔧 修改 | 设备码授权改服务端轮询，完成/过期发 `oauth.*` |
+| `apps/server/oauth2/types.go` | 🔧 修改 | `TokenResponse` 补 `IDToken` 字段（修复编译阻塞） |
+| `apps/server/services/mail_service.go` | 🔧 修改 | 新增 `GetMailAccountID` 用于补 `account_id` |
+| `apps/server/imap/worker.go` | 🔧 修改 | `AccountWorker.manualSync` 标志；`syncOnce` 发 `sync_done/error` 与 `stats.updated` |
+| `apps/server/notifier/notifier.go` | 🔧 修改 | Webhook 投递结果发 `webhook.delivered/failed` |
+| `apps/web/src/composables/useSSE.js` | 🔧 修改 | 新增 `mail.sent`、`oauth.*`、`account.sync_*`、`account.*`、`webhook.*`、`stats.updated` 监听 |
+| `apps/web/src/components/WizardOAuth2Flow.vue` | 🔧 修改 | 去 `setInterval` 轮询，改用 SSE 监听授权完成 |
+| `apps/web/src/views/AccountManage.vue` | 🔧 修改 | 订阅同步进度与账号生命周期事件，多标签页一致 |
+| `apps/web/src/views/SettingsView.vue` | 🔧 修改 | 订阅 Webhook 投递结果 |
+| `apps/web/src/components/AppSidebar.vue` | 🔧 修改 | 订阅 `stats.updated` 实时刷新未读角标 |
 
 **增量代码量**: +约 260 行 (Go), +约 180 行 (JS/Vue)
 

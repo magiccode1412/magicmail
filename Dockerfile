@@ -8,17 +8,17 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/web
 
-COPY web/package.json web/pnpm-lock.yaml* ./
+COPY apps/web/package.json apps/web/pnpm-lock.yaml* ./
 
 # 锁定 pnpm 10（与 CI 一致），避免 corepack 拉到 pnpm 11/12
 # 触发新的 ERR_PNPM_IGNORED_BUILDS 等破坏性校验；
-# esbuild / vue-demi 的安装脚本白名单已在 web/package.json 的
+# esbuild / vue-demi 的安装脚本白名单已在 apps/web/package.json 的
 # pnpm.onlyBuiltDependencies 中声明。
 RUN corepack enable pnpm && \
     corepack prepare pnpm@10 --activate && \
     pnpm install --frozen-lockfile
 
-COPY web/ .
+COPY apps/web/ .
 RUN pnpm build
 
 # ---- Stage 2: 构建 Go 二进制（嵌入前端产物） ----
@@ -30,11 +30,11 @@ WORKDIR /app/server
 # RUN apk add --no-cache gcc musl-dev
 
 # 先复制依赖文件，利用 Docker 缓存
-COPY server/go.mod server/go.sum ./
+COPY apps/server/go.mod apps/server/go.sum ./
 RUN go mod download
 
 # 复制源码和前端产物
-COPY server/ .
+COPY apps/server/ .
 
 # 从前端阶段复制构建产物到 embed 路径
 COPY --from=frontend-builder /app/server/dist ./embedfs/dist

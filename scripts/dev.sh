@@ -21,8 +21,8 @@ NC='\033[0m' # No Color
 
 # 项目根目录（脚本在 scripts/ 下，根目录是上一级）
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVER_DIR="${ROOT}/server"
-WEB_DIR="${ROOT}/web"
+SERVER_DIR="${ROOT}/apps/server"
+WEB_DIR="${ROOT}/apps/web"
 PID_DIR="${ROOT}/.dev-pids"
 
 # 服务端口

@@ -108,10 +108,10 @@ docker run -d -p 8080:8080 -v C:\data:C:\data --name magicmail --restart unless-
 
 ```bash
 # 终端 1：启动后端 (端口 8080)
-cd server && go run .
+cd apps/server && go run .
 
 # 终端 2：启动前端开发服务器 (端口 5173)
-cd web && pnpm install && pnpm dev
+cd apps/web && pnpm install && pnpm dev
 ```
 
 Vite 开发服务器会自动代理 `/api` 请求到后端。

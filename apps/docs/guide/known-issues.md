@@ -12,9 +12,9 @@
 - **问题描述**：使用 OAuth2（微软设备码）方式添加 Outlook/Hotmail 邮箱后，再次添加同一服务商的另一个邮箱时，向导不会发起新的授权，而是直接套用上一次认证结果（旧的 email + refresh_token），导致无法添加新邮箱。
 - **根因分析**：服务端 SSE broker 在**每次新建 SSE 连接时都会重放历史事件**（`StreamHandler` → `ReplayHistory`）。`oauth.authorized` / `oauth.expired` 这两个**一次性授权结果事件**被错误地列入 `replayableEvents`。第一次授权成功后，该事件（含上一个邮箱的 email + refresh_token）被存入用户历史；第二次添加邮箱时向导为本次授权新建 SSE 连接，立刻重放出这条陈旧事件，前端 `onOAuthAuthorized` 直接把旧结果当作本次授权成功 → 复用上一次认证结果。`broker.go` 中原本就有注释说明"一次性结果/通知类事件不应重放"，但这两个事件被遗漏了。
 - **修复方案**：
-  1. `server/sse/broker.go` — 将 `oauth.authorized`、`oauth.expired` 从 `replayableEvents` 中移除，OAuth 授权结果只在"实时发生"时推送给当前等待中的连接，不再历史重放；
-  2. `web/src/components/WizardOAuth2Flow.vue` — 给 `onOAuthAuthorized` / `onOAuthExpired` 回调加守卫：仅当 `status === 'pending'`（本次授权流程确实在等待）时才处理，避免任何陈旧或来自其它会话的事件误触发，作为防御性兜底。
-- **涉及文件**：`server/sse/broker.go`、`web/src/components/WizardOAuth2Flow.vue`
+  1. `apps/server/sse/broker.go` — 将 `oauth.authorized`、`oauth.expired` 从 `replayableEvents` 中移除，OAuth 授权结果只在"实时发生"时推送给当前等待中的连接，不再历史重放；
+  2. `apps/web/src/components/WizardOAuth2Flow.vue` — 给 `onOAuthAuthorized` / `onOAuthExpired` 回调加守卫：仅当 `status === 'pending'`（本次授权流程确实在等待）时才处理，避免任何陈旧或来自其它会话的事件误触发，作为防御性兜底。
+- **涉及文件**：`apps/server/sse/broker.go`、`apps/web/src/components/WizardOAuth2Flow.vue`
 - **附注**：`oauth.authorized` 等一次性事件本来只应提示一次；`account.health`、`account.sync_started/done` 在此之前已因"重放会误报/骚扰"被正确移除，本次补齐了 OAuth 事件的遗漏。
 
 ### Outlook 刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）
@@ -29,13 +29,13 @@
   ```
 
   删除邮件当时能成功，但随后同步（Access Token 过期需刷新时）即失败。
-- **根因分析**：`server/imap/client.go` 的 `persistOAuthTokens`（每次 OAuth 同步刷新 Token 后落库）原本依赖 GORM 的 `BeforeUpdate` 钩子来加密。但其写法 `db.Model(&models.MailAccount{}).Where(...).Updates(&updates)` 中，GORM 把 `BeforeUpdate` 钩子作用在了 `Model()` 传入的**空模型 `&MailAccount{}`** 上，而非承载数据的 `&updates` 结构体，导致 `encryptSensitiveFields` 跑在空结构体上，`refresh_token` / `access_token` 被**以明文原样写入数据库**。复现测试已确认此行为。
+- **根因分析**：`apps/server/imap/client.go` 的 `persistOAuthTokens`（每次 OAuth 同步刷新 Token 后落库）原本依赖 GORM 的 `BeforeUpdate` 钩子来加密。但其写法 `db.Model(&models.MailAccount{}).Where(...).Updates(&updates)` 中，GORM 把 `BeforeUpdate` 钩子作用在了 `Model()` 传入的**空模型 `&MailAccount{}`** 上，而非承载数据的 `&updates` 结构体，导致 `encryptSensitiveFields` 跑在空结构体上，`refresh_token` / `access_token` 被**以明文原样写入数据库**。复现测试已确认此行为。
 
   为何"删除邮件能成功、重新同步才失败"：
   1. 删除邮件时 `access_token` 仍在有效期内，`resolveAccessToken` 走 early-return 分支（不读取 `refresh_token`），故删除成功；
   2. 重新同步时 `access_token` 已过期，必须刷新 → 读取 `refresh_token` → `AfterFind` 对明文做 `Decrypt` → `!IsEncrypted` → 报"RefreshToken 解密失败"。
-- **修复方案**：`persistOAuthTokens` 改为**写入前显式加密**（带 `IsEncrypted` 守卫防双重加密），并改用 `map` 更新只写指定列，不再依赖不可靠的钩子（与 `account_service.Update` 既有的防御式写法一致）。新增回归测试 `server/imap/client_persist_test.go`（已通过）。
-- **涉及文件**：`server/imap/client.go`、`server/imap/client_persist_test.go`
+- **修复方案**：`persistOAuthTokens` 改为**写入前显式加密**（带 `IsEncrypted` 守卫防双重加密），并改用 `map` 更新只写指定列，不再依赖不可靠的钩子（与 `account_service.Update` 既有的防御式写法一致）。新增回归测试 `apps/server/imap/client_persist_test.go`（已通过）。
+- **涉及文件**：`apps/server/imap/client.go`、`apps/server/imap/client_persist_test.go`
 - **自愈与补救**：启动时的迁移 `encryptPlaintextSecrets`（`database/database.go`）会扫描并把**明文**的 `refresh_token`/`password` 重新加密。因此**重启一次应用**，账号已有的明文 `refresh_token` 会被自动加密修复，之后即可正常刷新；也可在账号设置里"重新授权"该邮箱。
 
 ### 点击「立即同步」无反应，终端日志完全静默
@@ -66,10 +66,10 @@
   4. **停止信号不再丢失**：`stopCh` 由无缓冲改为缓冲 1。原实现是无缓冲通道 + 非阻塞发送，Worker 正忙（如正在 `syncOnce`）时停止信号会被 `default` 分支直接丢弃，导致重启后新旧两个 Worker 并存、竞态同步；
   5. **POP3 全链路超时**：建连与 TLS 握手 30s、普通命令 60s、`LIST` 全量列表 2min、单封邮件下载 5min，任何挂起都会在可预期时间内变成一条明确的错误日志。顺带将 `fmt.Sprintf("%s:%d", host, port)` 改为 `net.JoinHostPort()`，修复 IPv6 主机下地址非法的问题。
 - **涉及文件**：
-  - `server/imap/worker.go` — `doneCh` 存活判定与表项清理、唤醒日志、`syncOnce` 起止日志、`stopCh` 缓冲
-  - `server/imap/fetcher.go` — FETCH 循环进度日志
-  - `server/pop3/client.go` — 建连/命令/下载超时、IPv6 地址拼接
-  - `server/services/account_service.go` — `TriggerSync` 唤醒/重启路径日志
+  - `apps/server/imap/worker.go` — `doneCh` 存活判定与表项清理、唤醒日志、`syncOnce` 起止日志、`stopCh` 缓冲
+  - `apps/server/imap/fetcher.go` — FETCH 循环进度日志
+  - `apps/server/pop3/client.go` — 建连/命令/下载超时、IPv6 地址拼接
+  - `apps/server/services/account_service.go` — `TriggerSync` 唤醒/重启路径日志
 - **复现验证**：重新编译后点击同步，正常应依次出现：
 
   ```
@@ -99,7 +99,7 @@
   5. 在网页端把历史邮件**转发给自己**后应用能正常收到——确认 IMAP 链路与代码均无问题。
 - **根因**：服务商策略。**IMAP/POP3 只投递"开通服务之后"新到达的邮件，历史邮件不对第三方客户端开放**。这是运营商邮箱的常见做法，客户端在协议层无法绕过。
 - **变通方案**：网页端把需要的历史邮件转发给自己，转发件会作为全新邮件进入 IMAP 并被正常收取。仅限个别重要邮件，批量操作不现实。
-- **涉及文件**：无（非代码问题）。诊断工具见 `server/cmd/imapdiag/main.go`。
+- **涉及文件**：无（非代码问题）。诊断工具见 `apps/server/cmd/imapdiag/main.go`。
 - **附注**：该服务器 `SELECT` 返回的 `UIDNEXT` 恒为 `0`（违反 RFC 3501，规范要求 ≥1），`UIDVALIDITY` 也是 1、2、3… 这类小整数。业务代码不读取这两个字段，故不受影响。
 
 ### IMAP/POP3 邮件缺失 Message-ID 时被反复重复入库
@@ -117,10 +117,10 @@
   3. **索引调整**：将 `message_id` 从 `uniqueIndex`（全局唯一）改为普通 `index`，新增 `message_uid` 索引提升查询性能；
   4. **数据库迁移自动清理**：启动时自动执行 `cleanupDuplicateMails()`，删除历史重复记录（按 `account_id + folder + message_uid` 去重，保留最早入库的一条），将旧格式 `<auto-*@proxy>` 的 `message_id` 更新为新稳定格式，移除过宽的旧唯一索引，创建复合唯一索引 `idx_mails_account_folder_uid`。
 - **涉及文件**：
-  - `server/imap/fetcher.go` — IMAP fallback Message-ID 生成 + 去重查询
-  - `server/pop3/fetcher.go` — POP3 fallback Message-ID 生成 + 去重查询 + Folder 字段
-  - `server/models/mail.go` — 索引调整
-  - `server/database/database.go` — 迁移后清理函数 `cleanupDuplicateMails()`
+  - `apps/server/imap/fetcher.go` — IMAP fallback Message-ID 生成 + 去重查询
+  - `apps/server/pop3/fetcher.go` — POP3 fallback Message-ID 生成 + 去重查询 + Folder 字段
+  - `apps/server/models/mail.go` — 索引调整
+  - `apps/server/database/database.go` — 迁移后清理函数 `cleanupDuplicateMails()`
 - **影响范围**：IMAP 和 POP3 协议均受影响；使用阿里云、部分企业邮箱等不发 `Message-ID` 的邮件时尤为明显。修复后历史重复数据在下次启动时自动清理，后续同步不再产生重复。
 
 ### 企业微信邮件中文乱码 (GBK/GB18030 编码)
@@ -138,10 +138,10 @@
   3. **头部字段解码**：使用带 `CharsetReader` 回调的 `mime.WordDecoder` 解码 Subject、From/To 显示名等 RFC 2047 编码头部；
   4. **Charset 值清理**：所有读取 charset 的位置均添加 `strings.Trim(charset, "\"' \t")`，处理 MIME 声明中可能包裹的引号。
 - **涉及文件**：
-  - `server/main.go` — 全局 `message.CharsetReader` 设置（透传模式）
-  - `server/imap/fetcher.go` — IMAP 邮件正文/头部解码逻辑
-  - `server/pop3/fetcher.go` — POP3 邮件正文/头部解码逻辑
-  - `server/services/attachment_service.go` — 附件名 RFC 2047 解码
+  - `apps/server/main.go` — 全局 `message.CharsetReader` 设置（透传模式）
+  - `apps/server/imap/fetcher.go` — IMAP 邮件正文/头部解码逻辑
+  - `apps/server/pop3/fetcher.go` — POP3 邮件正文/头部解码逻辑
+  - `apps/server/services/attachment_service.go` — 附件名 RFC 2047 解码
 - **依赖新增**：`golang.org/x/text v0.21.0`（`simplifiedchinese.GBK` 解码器）
 
 ### 163/126 等网易邮箱无法发送邮件
@@ -154,7 +154,7 @@
   2. 新增 SMTP 端口映射表（`smtpPortMap`），针对不同服务商使用正确的端口（如网易系使用 465 SSL/TLS，Gmail/Outlook 使用 587 STARTTLS）；
   3. 实现 `inferSMTPHost()` 函数，根据 IMAP 地址自动推断 SMTP 服务器地址（优先匹配已知服务商，否则将 `imap.` 替换为 `smtp.`）；
   4. 实现 `DefaultSmtpPort()` 函数，根据 SMTP 服务器地址返回正确的默认端口。
-- **涉及文件**：`server/models/mail_account.go`
+- **涉及文件**：`apps/server/models/mail_account.go`
 
 ### IMAP IDLE 不兼容部分邮件服务器
 
@@ -165,7 +165,7 @@
   1. 新增 IDLE 支持服务器白名单（`idleVerifiedServers`），仅对 Gmail、Yahoo、Outlook、QQ 等已验证服务器启用 IDLE；
   2. 新增运行时学习机制（`idleLearnedUnsupported`），首次遇到不支持的 IDLE 错误（包含 "BAD"、"not support"、"not allowed" 关键字）时，自动将该服务器标记为不支持并加入全局黑名单；
   3. 后续同服务器的其他 Worker 可共享黑名单信息，避免重复尝试。
-- **涉及文件**：`server/imap/worker.go`
+- **涉及文件**：`apps/server/imap/worker.go`
 - **备注**：未知服务器仍会首次尝试 IDLE，符合渐进式兼容策略。失败后的处理已分为两类：
   - 服务器明确返回不支持（`BAD` / `not support` / `not allowed`）：写入全局黑名单，同服务器的其他账号一并降级为轮询；
   - 网络抖动等瞬时故障：**指数退避重连**（30s → 60s → 120s，上限 15 分钟），连续失败 4 次后才降级为轮询，且只影响当前 Worker、不写入全局黑名单（避免误伤同服务器的其他账号）。
@@ -184,7 +184,7 @@
 - **修复方案**：
   1. 新增 `sanitizeHeaderValue` 和 `sanitizeEmailAddr` 函数，在构建邮件头部时清洗所有用户输入，移除控制字符；
   2. 在 `Send` handler 入口处增加输入校验，检测并拒绝包含 `\r\n` 的字段值（纵深防御）。
-- **涉及文件**：`server/smtp/client.go`, `server/handlers/mail_handler.go`
+- **涉及文件**：`apps/server/smtp/client.go`, `apps/server/handlers/mail_handler.go`
 - **参考**：同类漏洞 (CVE form-data v4.0.5) — 本项目虽不依赖该库，但存在相同的攻击面
 
 ### 密码解密失败导致账号列表查询异常
@@ -196,7 +196,7 @@
   1. 解密失败时仅记录警告日志并清空密码字段，不再返回错误阻断查询；
   2. 新增 `AccountListDTO` 专用列表查询模型，避免列表场景触发 `AfterFind` 解密逻辑；
   3. 新增账号健康检查接口 `/api/v1/accounts/health`，便于排查异常账号。
-- **涉及文件**：`server/models/mail_account.go`, `server/services/account_service.go`, `server/handlers/account_handler.go`, `server/services/health_check_service.go`, `web/src/stores/accountStore.js`
+- **涉及文件**：`apps/server/models/mail_account.go`, `apps/server/services/account_service.go`, `apps/server/handlers/account_handler.go`, `apps/server/services/health_check_service.go`, `apps/web/src/stores/accountStore.js`
 
 ### 163/126 网易邮箱登录失败 (Unsafe Login)
 
@@ -204,7 +204,7 @@
 - **记录时间**：2026-06-25
 - **问题描述**：使用 163、126 等网易邮箱时，IMAP 登录返回 "SELECT Unsafe Login" 错误，导致无法正常收信。原因是网易邮箱要求客户端在登录前必须发送 ID 命令声明身份（符合 RFC 2971 规范）。
 - **修复方案**：在 IMAP 登录前主动发送 ID 命令，声明客户端信息（Name: MagicMail, Version: 1.0.0, Vendor: MagicCode）。若服务器不支持 ID 命令则仅记录日志，不阻塞登录流程。
-- **涉及文件**：`server/imap/client.go`
+- **涉及文件**：`apps/server/imap/client.go`
 
 ### 邮箱管理页面中等宽度下信息与按钮重叠
 
@@ -212,4 +212,4 @@
 - **记录时间**：2026-06-26
 - **问题描述**：在 768px ~ 900px 宽度区间，邮箱管理页面的桌面端 Grid 布局会导致邮箱地址信息与右侧操作按钮（编辑、同步、删除）发生重叠，影响使用体验。
 - **修复方案**：将 `AccountManage.vue` 的响应式断点从 `768px` 调整为 `900px`，使中等屏幕更早切换到卡片布局。
-- **涉及文件**：`web/src/views/AccountManage.vue`
+- **涉及文件**：`apps/web/src/views/AccountManage.vue`

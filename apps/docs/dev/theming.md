@@ -4,7 +4,7 @@ Magicmail 使用 CSS 变量驱动的主题系统，可以轻松自定义外观�
 
 ## CSS 变量定义
 
-主题变量位于 `web/src/styles/themes.css`：
+主题变量位于 `apps/web/src/styles/themes.css`：
 
 ### 浅色主题
 
@@ -85,7 +85,7 @@ Magicmail 使用 CSS 变量驱动的主题系统，可以轻松自定义外观�
 系统自动检测操作系统偏好：
 
 ```js
-// web/src/composables/useTheme.js
+// apps/web/src/composables/useTheme.js
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 ```
 

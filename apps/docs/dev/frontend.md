@@ -3,7 +3,7 @@
 ## 环境准备
 
 ```bash
-cd web
+cd apps/web
 pnpm install
 pnpm dev
 ```
@@ -13,7 +13,7 @@ pnpm dev
 ## 目录职责说明
 
 ```
-web/src/
+apps/web/src/
 ├── main.js             # 应用入口：创建 Vue 实例、挂载插件
 ├── App.vue             # 根组件：布局框架（侧边栏 + 内容区）
 ├── router/
@@ -56,7 +56,7 @@ web/src/
 ### 1. 创建视图组件
 
 ```vue
-<!-- web/src/views/TagManageView.vue -->
+<!-- apps/web/src/views/TagManageView.vue -->
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getTags, createTag } from '@/api/tag'
@@ -87,7 +87,7 @@ async function handleCreate() {
 ### 2. 注册路由
 
 ```js
-// web/src/router/index.js
+// apps/web/src/router/index.js
 {
   path: '/settings/tags',
   name: 'TagManage',
@@ -103,7 +103,7 @@ async function handleCreate() {
 ### 4. 如需全局状态，创建 Store
 
 ```js
-// web/src/stores/tag.js
+// apps/web/src/stores/tag.js
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
@@ -116,7 +116,7 @@ export const useTagStore = defineStore('tag', () => {
 ## API 封装规范
 
 ```js
-// web/src/api/tag.js
+// apps/web/src/api/tag.js
 import request from './index'
 
 export function getTags(params) {

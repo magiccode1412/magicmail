@@ -5,7 +5,7 @@
 ## IMAP 模块架构
 
 ```
-server/imap/
+apps/server/imap/
 ├── client.go      # 底层 IMAP 连接管理
 ├── fetcher.go     # 邮件拉取与 MIME 解析
 └── worker.go      # 后台调度（IDLE + 轮询）

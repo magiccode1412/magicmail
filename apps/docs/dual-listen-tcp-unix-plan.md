@@ -10,7 +10,7 @@
 > `cmd/main` 中 `fnos_listen_mode` / `fnos_tcp_port` 的读取与 TCP 注入。
 > 后端 `MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR` 作为通用能力保留，但飞牛侧不再注入。
 >
-> 现行方案见 **`docs/gateway-prefix-strip-plan.md`**。以下为历史记录，仅供追溯。
+> 现行方案见 **`apps/docs/gateway-prefix-strip-plan.md`**。以下为历史记录，仅供追溯。
 
 > 目标：在保留飞牛统一网关 Unix Socket 能力的前提下，通过安装向导让用户**选择**是否同时监听 TCP 端口，
 > 端口由用户在向导中设置（默认 `23232`，非必需，仅在上一步选了「同时开启端口」时才需要填写）。
@@ -21,7 +21,7 @@
 ## 1. 现状分析
 
 ### 1.1 当前监听架构
-后端 `server/main.go` 的 `listenAndServe()` 已实现 TCP / Unix 两种模式的**二选一**切换，
+后端 `apps/server/main.go` 的 `listenAndServe()` 已实现 TCP / Unix 两种模式的**二选一**切换，
 由环境变量 `MAGICMAIL_LISTEN` 决定：
 
 | 值 | 行为 |
@@ -30,13 +30,13 @@
 | `tcp://HOST:PORT` | 仅 TCP |
 | `unix:///path/app.sock` | 仅 Unix Socket（飞牛 fnOS 安装包当前使用） |
 
-飞牛包 `fnapp/cmd/main` 启动进程时固定注入 `MAGICMAIL_LISTEN="unix://${SOCK}"`，
+飞牛包 `apps/fnapp/cmd/main` 启动进程时固定注入 `MAGICMAIL_LISTEN="unix://${SOCK}"`，
 因此**当前飞牛部署下只监听 Unix Socket，外部无法通过 TCP 直连**。
 
 ### 1.2 飞牛向导（wizard）机制
-- 引导界面由 `fnapp/wizard/install`（安装引导）与 `fnapp/wizard/config`（安装后配置引导）的 JSON 定义。
+- 引导界面由 `apps/fnapp/wizard/install`（安装引导）与 `apps/fnapp/wizard/config`（安装后配置引导）的 JSON 定义。
 - 控件通过 `field` 命名，安装/配置完成后由飞牛系统以 **`fnos_<field>` 环境变量** 注入到 `cmd/main` 等脚本。
-  - 参照现有实现：`wizard/uninstall` 中 `field: "wizard_data_action"` → 脚本读取变量 `wizard_data_action`（见 `fnapp/cmd/uninstall_callback`）。
+  - 参照现有实现：`wizard/uninstall` 中 `field: "wizard_data_action"` → 脚本读取变量 `wizard_data_action`（见 `apps/fnapp/cmd/uninstall_callback`）。
   - 即：`field` 值会原样成为环境变量名（本计划沿用同一约定，使用 `fnos_` 前缀语义由飞牛注入，脚本侧按 `fnos_<field>` 读取）。
 - 支持的控件类型（参考 `uninstall` 示例）：`tips`、`radio`（单选）、`text`（文本输入）等；`radio` 用 `options` + `initValue` 设置默认。
 
@@ -82,7 +82,7 @@
 
 ## 3. 改动方案
 
-### 3.1 安装向导：`fnapp/wizard/install`
+### 3.1 安装向导：`apps/fnapp/wizard/install`
 
 在现有「欢迎」步骤之后，新增一个步骤，包含：
 1. `radio` 选择部署模式（默认 `gateway`）。
@@ -130,12 +130,12 @@
 > 说明：`tcp_port` 的「条件显示」（仅 `listen_mode=both` 时出现）依赖飞牛向导框架的联动能力；
 > 若框架不支持条件显示，则 `tcp_port` 始终显示但标注「仅同时开启端口时生效」，并在 `cmd/main` 中仅 `both` 模式读取它。
 
-### 3.2 安装后配置向导：`fnapp/wizard/config`
+### 3.2 安装后配置向导：`apps/fnapp/wizard/config`
 
 当前 `wizard/config` 仅一句 tips。建议同步加入同样的「访问方式」步骤（复用 §3.1 的 JSON 片段），
-使安装后用户也能在飞牛应用中心「配置」里修改模式与端口，改完由 `fnapp/cmd/main` 的 `restart`/`config` 回调重新注入并重启。
+使安装后用户也能在飞牛应用中心「配置」里修改模式与端口，改完由 `apps/fnapp/cmd/main` 的 `restart`/`config` 回调重新注入并重启。
 
-### 3.3 启动脚本：`fnapp/cmd/main`
+### 3.3 启动脚本：`apps/fnapp/cmd/main`
 
 在 `start_process()` 注入环境变量处，改为读取向导变量：
 
@@ -163,7 +163,7 @@ fi
 - `0.0.0.0` 暴露意味着局域网任意设备可访问 Web 登录页；认证仍由 JWT 保护。
 - 建议在文档提醒：若仅在飞牛内网使用，可在后续把 `MAGICMAIL_TCP_ADDR` 改为 `127.0.0.1:PORT`（仅本机，配合反代/SSH 隧道）。
 
-### 3.4 后端：`server/config/config.go`
+### 3.4 后端：`apps/server/config/config.go`
 
 `ServerConfig` 新增字段（与 §2.2 对应）：
 
@@ -188,7 +188,7 @@ tcpAddr := getEnv("MAGICMAIL_TCP_ADDR", "")
 - Docker / 旧部署：不设 `MAGICMAIL_TCP_ENABLED` → 沿用现有 `Listen` 逻辑（向后兼容，零改动）。
 - 飞牛 `both` 模式：`MAGICMAIL_TCP_ENABLED=1` + `MAGICMAIL_TCP_ADDR=0.0.0.0:23232`。
 
-### 3.5 后端：`server/main.go`
+### 3.5 后端：`apps/server/main.go`
 
 将 `listenAndServe` 改造为「主监听（Unix 阻塞）+ 可选 TCP 并行」：
 
@@ -226,12 +226,12 @@ func listenAndServe(app *fiber.App, cfg *config.Config) error {
 
 ### 3.6 清单/打包与文档
 
-**`fnapp/manifest`**
+**`apps/fnapp/manifest`**
 - 当前 `checkport = false`（飞牛网关模式，不检查端口）。
 - 端口由向导自定义（`both` 模式），无法在 manifest 写死 → **保持 `checkport=false`**，TCP 直连作为「隐藏能力」，由用户自行在防火墙放行。
 - `changelog` 说明「新增安装向导：可选同时开启 TCP 端口（默认 23232）」。
 
-**`docs/` 新增使用说明**
+**`apps/docs/` 新增使用说明**
 - 飞牛模式下 TCP 直连用法：端口默认 `23232`（或向导所设）。
 - 访问：`http://<飞牛IP>:<PORT>/app/magicmail`（带前缀）。
 - 防火墙放行示例（复用 `deploy.sh` 中已有的 `ufw` / `firewall-cmd` 提示）。
@@ -246,13 +246,13 @@ func listenAndServe(app *fiber.App, cfg *config.Config) error {
 
 | 文件 | 改动类型 | 说明 |
 |---|---|---|
-| `fnapp/wizard/install` | 修改 | 新增「访问方式设置」步骤：`listen_mode` 单选（默认 gateway）+ `tcp_port` 文本（默认 23232，非必需） |
-| `fnapp/wizard/config` | 修改 | 同步加入「访问方式设置」步骤（安装后也可配置） |
-| `fnapp/cmd/main` | 修改 | 读取 `fnos_listen_mode` / `fnos_tcp_port` → 注入 `MAGICMAIL_LISTEN` / `MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR` |
-| `server/config/config.go` | 修改 | 新增 `TCPEnabled` / `TCPAddr`，`Load()` 读取对应环境变量 |
-| `server/main.go` | 修改 | `listenAndServe` 改为「主监听阻塞 + TCP 并行 goroutine」，抽出 `buildListener` |
-| `fnapp/manifest` | 修改（小） | changelog 说明；`checkport` 维持 `false` |
-| `docs/` 文档 | 新增/修改 | 补充飞牛向导选择 + TCP 直连用法、防火墙放行 |
+| `apps/fnapp/wizard/install` | 修改 | 新增「访问方式设置」步骤：`listen_mode` 单选（默认 gateway）+ `tcp_port` 文本（默认 23232，非必需） |
+| `apps/fnapp/wizard/config` | 修改 | 同步加入「访问方式设置」步骤（安装后也可配置） |
+| `apps/fnapp/cmd/main` | 修改 | 读取 `fnos_listen_mode` / `fnos_tcp_port` → 注入 `MAGICMAIL_LISTEN` / `MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR` |
+| `apps/server/config/config.go` | 修改 | 新增 `TCPEnabled` / `TCPAddr`，`Load()` 读取对应环境变量 |
+| `apps/server/main.go` | 修改 | `listenAndServe` 改为「主监听阻塞 + TCP 并行 goroutine」，抽出 `buildListener` |
+| `apps/fnapp/manifest` | 修改（小） | changelog 说明；`checkport` 维持 `false` |
+| `apps/docs/` 文档 | 新增/修改 | 补充飞牛向导选择 + TCP 直连用法、防火墙放行 |
 
 ---
 
@@ -262,9 +262,9 @@ func listenAndServe(app *fiber.App, cfg *config.Config) error {
 2. **`main.go`**：重构 `listenAndServe`，抽出 `buildListener`；主监听阻塞，TCP 并行 `go app.Listen`。
 3. **本地验证**：`MAGICMAIL_LISTEN=unix:///tmp/t.sock MAGICMAIL_TCP_ENABLED=1 MAGICMAIL_TCP_ADDR=127.0.0.1:23232 ./magicmail`，
    确认 Unix socket 与 `curl http://127.0.0.1:23232/` 均 200。
-4. **`fnapp/wizard/install` + `wizard/config`**：加入「访问方式设置」步骤。
-5. **`fnapp/cmd/main`**：读取 `fnos_listen_mode` / `fnos_tcp_port`，按 §2.2 注入环境变量（默认 gateway / 23232）。
-6. **`fnapp/manifest`** + **文档**：说明向导能力与端口默认 23232、防火墙放行。
+4. **`apps/fnapp/wizard/install` + `wizard/config`**：加入「访问方式设置」步骤。
+5. **`apps/fnapp/cmd/main`**：读取 `fnos_listen_mode` / `fnos_tcp_port`，按 §2.2 注入环境变量（默认 gateway / 23232）。
+6. **`apps/fnapp/manifest`** + **文档**：说明向导能力与端口默认 23232、防火墙放行。
 7. **构建验证**：`build_fpk.sh` 打包，在 fnOS 测试：① 默认安装仅网关；② 选 `both` 后可 TCP 直连指定端口。
 
 ---
@@ -298,13 +298,13 @@ func listenAndServe(app *fiber.App, cfg *config.Config) error {
 
 | 文件 | 改动 |
 |---|---|
-| `server/config/config.go` | `ServerConfig` 新增 `TCPEnabled` / `TCPAddr`；`Load()` 解析 `MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR`（gofmt 已格式化，config 包编译通过） |
-| `server/main.go` | 抽出 `buildListener()`（Unix/TCP 统一建监听）；`listenAndServe()` 改为「主监听阻塞 + TCP 并行 goroutine」；新增 `unixSocketPath()` 辅助；进程退出 defer 清理 socket |
-| `fnapp/cmd/main` | 读取 `fnos_listen_mode`（默认 gateway）/ `fnos_tcp_port`（默认 23232，非法回退）；`gateway` 仅 Unix，`both` 额外注入 `MAGICMAIL_TCP_ENABLED=1` + `MAGICMAIL_TCP_ADDR=0.0.0.0:PORT`；诊断日志补充模式与端口 |
-| `fnapp/wizard/install` | 新增「访问方式设置」步骤：`listen_mode` radio（默认 gateway）+ `tcp_port` text（默认 23232，非必需，正则校验） |
-| `fnapp/wizard/config` | 同步新增「访问方式设置」步骤（安装后亦可配置） |
-| `fnapp/cmd/config_callback` | 原空操作改为配置变更后 `stop`+`start` 重启，使新模式/端口生效 |
-| `fnapp/manifest` | changelog 说明向导新增「访问方式」选择 |
+| `apps/server/config/config.go` | `ServerConfig` 新增 `TCPEnabled` / `TCPAddr`；`Load()` 解析 `MAGICMAIL_TCP_ENABLED` / `MAGICMAIL_TCP_ADDR`（gofmt 已格式化，config 包编译通过） |
+| `apps/server/main.go` | 抽出 `buildListener()`（Unix/TCP 统一建监听）；`listenAndServe()` 改为「主监听阻塞 + TCP 并行 goroutine」；新增 `unixSocketPath()` 辅助；进程退出 defer 清理 socket |
+| `apps/fnapp/cmd/main` | 读取 `fnos_listen_mode`（默认 gateway）/ `fnos_tcp_port`（默认 23232，非法回退）；`gateway` 仅 Unix，`both` 额外注入 `MAGICMAIL_TCP_ENABLED=1` + `MAGICMAIL_TCP_ADDR=0.0.0.0:PORT`；诊断日志补充模式与端口 |
+| `apps/fnapp/wizard/install` | 新增「访问方式设置」步骤：`listen_mode` radio（默认 gateway）+ `tcp_port` text（默认 23232，非必需，正则校验） |
+| `apps/fnapp/wizard/config` | 同步新增「访问方式设置」步骤（安装后亦可配置） |
+| `apps/fnapp/cmd/config_callback` | 原空操作改为配置变更后 `stop`+`start` 重启，使新模式/端口生效 |
+| `apps/fnapp/manifest` | changelog 说明向导新增「访问方式」选择 |
 
 **验证说明**：`go build ./...` 仍报 `embedfs/embed.go: pattern all:dist` 错误，该错误源于前端 `dist` 目录未构建（embed 硬依赖），属预存问题，将由 `build_fpk.sh` 正常流程自动解决，与本次改动无关；`config` 包已独立编译通过，`main.go`/`config.go` 经 `gofmt` 与 `go vet` 校验无新增问题。
 

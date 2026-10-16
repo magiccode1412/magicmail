@@ -21,8 +21,8 @@ SSE Broker (发布-订阅)
 
 ### 服务端组件
 
-- **Broker** (`server/sse/broker.go`)：事件广播中心，维护在线连接池
-- **Handler** (`server/sse/handler.go`)：HTTP 端点处理器，管理连接生命周期
+- **Broker** (`apps/server/sse/broker.go`)：事件广播中心，维护在线连接池
+- **Handler** (`apps/server/sse/handler.go`)：HTTP 端点处理器，管理连接生命周期
 
 ### 防阻塞机制
 
