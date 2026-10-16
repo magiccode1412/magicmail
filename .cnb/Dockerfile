@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y git wget unzip openssh-server && \
     mv fnpack /usr/local/bin/fnpack
 
 # 安装 Go 热重载工具 Air（后端代码修改自动重启）
-RUN go install github.com/air-verse/air@latest
+RUN go install github.com/air-verse/air@v1.61.7
 
 # 指定字符集支持命令行输入中文（根据需要选择字符集）
 ENV LANG=C.UTF-8
