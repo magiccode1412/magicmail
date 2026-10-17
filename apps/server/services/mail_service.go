@@ -11,6 +11,7 @@ import (
 	"magicmail/config"
 	"magicmail/imap"
 	"magicmail/models"
+	"magicmail/oauth2"
 	pop3pkg "magicmail/pop3"
 	"magicmail/smtp"
 
@@ -611,8 +612,16 @@ func (s *MailService) SendMail(req smtp.SendRequest, userID uint) (*smtp.SendRes
 		return nil, fmt.Errorf("邮箱账号不存在 (ID=%d)", req.AccountID)
 	}
 
-	if account.Password == "" {
+	// OAuth2 账号（XOAUTH2）无需传统密码；仅传统密码账号才要求 Password 非空
+	if !oauth2.IsOAuth2Account(account.AuthType) && account.Password == "" {
 		return nil, fmt.Errorf("该邮箱账号未设置密码，无法发送邮件")
+	}
+
+	// OAuth2 账号：发送前确保 Access Token 有效（过期则自动刷新并持久化）
+	if oauth2.IsOAuth2Account(account.AuthType) {
+		if _, err := oauth2.EnsureAccessToken(&account, s.db); err != nil {
+			return nil, err
+		}
 	}
 
 	return smtp.SendMail(&account, &req)

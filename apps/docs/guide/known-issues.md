@@ -5,6 +5,24 @@
 
 ## 问题列表
 
+### Outlook/Hotmail 发送邮件报 504 5.7.4 Unrecognized authentication type
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-10-17
+- **问题描述**：使用 Outlook/Hotmail 邮箱（无论密码账号还是 OAuth2 账号）发送邮件时失败：
+
+  ```
+  ✗ 发送失败: 发送邮件失败 (smtp.office365.com:587): 认证失败: 504 "5.7.4 Unrecognized authentication type ..."
+  ```
+
+- **根因分析**：`apps/server/smtp/client.go` 的 `SendMail` 始终使用 Basic Auth（`smtp.PlainAuth`），从未走 OAuth2 路径。自 2022 年 10 月起微软已**禁用 SMTP Basic Auth**，`smtp.office365.com:587` 不再接受 `AUTH LOGIN/PLAIN`，只能用 **XOAUTH2**。此外 `apps/server/services/mail_service.go` 的 `SendMail` 对 `Password == ""` 直接返回"未设置密码"，把 OAuth2 账号（其密码字段复用存储 Access Token，初始可能为空）一并拦在发送门外。IMAP 接收早已支持 XOAUTH2（`imap/client.go` 的 `authenticateOAuth2`），SMTP 发送却漏了。
+- **修复方案**：
+  1. 新增 `apps/server/oauth2/token.go` 的 `EnsureAccessToken`：与 IMAP 路径一致的 Token 解析/刷新逻辑，供 SMTP 发送复用（过期自动刷新并持久化）；
+  2. `apps/server/smtp/client.go` 新增 `xoauth2Auth`（实现 `net/smtp.Auth`），并在 `SendMail` 中按 `AuthType` 选择 **XOAUTH2**（OAuth2 账号）或 **Basic Auth**（传统账号）；
+  3. `apps/server/services/mail_service.go` 放宽密码校验：`OAuth2` 账号不再要求 `Password` 非空，发送前调用 `oauth2.EnsureAccessToken` 确保令牌有效。
+- **涉及文件**：`apps/server/smtp/client.go`、`apps/server/services/mail_service.go`、`apps/server/oauth2/token.go`
+- **附注**：若账号是**传统密码账号**且微软租户已禁用 Basic Auth，仅改代码无法发送——需改用**应用密码**（开启 2FA 后生成）并确保租户/邮箱开启 SMTP AUTH，或**以 OAuth2 方式重新添加该 Outlook/Hotmail 账号**（推荐）。
+
 ### 再次添加同服务商（Outlook）OAuth 邮箱会复用上一次认证结果
 
 - **状态**：✅ 已修复未发布

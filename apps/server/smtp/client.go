@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"magicmail/models"
+	"magicmail/oauth2"
 	"magicmail/proxy"
 )
 
@@ -31,6 +32,33 @@ type SendResult struct {
 	MessageID string `json:"message_id,omitempty"`
 }
 
+// xoauth2Auth 实现 net/smtp.Auth 接口，使用 XOAUTH2 SASL 机制。
+// 微软 Outlook/Hotmail (smtp.office365.com) 与 Gmail 均已禁用 Basic Auth，
+// 发送邮件必须使用 XOAUTH2；其 SASL 字符串格式为：
+//
+//	"user=<email>\x01auth=Bearer <access_token>\x01\x01"
+//
+// 参考: https://learn.microsoft.com/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth
+type xoauth2Auth struct {
+	username string
+	token    string
+}
+
+// Start 返回 SASL 机制名称与初始响应
+func (a *xoauth2Auth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	resp := []byte("user=" + a.username + "\x01auth=Bearer " + a.token + "\x01\x01")
+	return "XOAUTH2", resp, nil
+}
+
+// Next 处理服务器挑战：XOAUTH2 成功时无挑战；失败时服务端回送挑战，
+// 按 RFC 4954 回空行中止认证流程，避免卡死。
+func (a *xoauth2Auth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		return []byte{}, nil
+	}
+	return nil, nil
+}
+
 // SendMail 通过指定账号的 SMTP 服务器发送邮件
 func SendMail(account *models.MailAccount, req *SendRequest) (*SendResult, error) {
 	smtpHost := getSMTPHost(account)
@@ -38,8 +66,18 @@ func SendMail(account *models.MailAccount, req *SendRequest) (*SendResult, error
 
 	addr := fmt.Sprintf("%s:%d", smtpHost, smtpPort)
 
-	// 构建认证信息
-	auth := smtp.PlainAuth("", account.Username, account.Password, smtpHost)
+	// 构建认证信息：
+	//   - OAuth2 账号（微软/谷歌）走 XOAUTH2（Basic Auth 已被服务商禁用，必须用 OAuth2）
+	//   - 传统密码账号走 Basic Auth（PLAIN）
+	var auth smtp.Auth
+	if oauth2.IsOAuth2Account(account.AuthType) {
+		auth = &xoauth2Auth{
+			username: account.Email,                 // XOAUTH2 的 user 必须是邮箱地址
+			token:    account.Password,              // OAuth2 模式下 Password 字段复用存储 Access Token
+		}
+	} else {
+		auth = smtp.PlainAuth("", account.Username, account.Password, smtpHost)
+	}
 
 	// 构建邮件内容（RFC822 格式）
 	from := account.Email
