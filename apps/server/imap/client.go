@@ -307,6 +307,22 @@ func (c *IMAPClient) authenticateLogin() error {
 // sendClientID 发送 IMAP ID 命令声明客户端身份（RFC 2971）
 // 163/126等网易邮箱要求客户端必须发送ID命令，否则会返回 "SELECT Unsafe Login" 错误
 func (c *IMAPClient) sendClientID() {
+	// ⭐ 必须先等服务端 greeting 再发送"首条命令"（这里的 IMAP ID）。
+	//
+	// 背景（见 issue #11）：QQ 邮箱（imap.qq.com / XMail）在客户端尚未读取
+	// 服务端 greeting 时就收到首条命令，会将其挂起、直到下一条命令到来才一并处理，
+	// 导致 ID().Wait() 与服务器互相等待而死锁，最终表现为同步卡死约 15 分钟后
+	// 被服务器断开（报错 use of closed network connection）。
+	// 163 / Gmail 等服务器对此较宽容，不会暴露该问题。
+	//
+	// go-imap/v2 的 DialTLS / New 不会自动等待 greeting，首个命令若紧随其后发出
+	// 即触发上述死锁；显式 WaitGreeting() 可确保所有服务端先完成握手播报，
+	// 首条命令立即得到响应（实测 0.05s 返回）。
+	if err := c.Client.WaitGreeting(); err != nil {
+		// greeting 读取失败也继续后续流程（不阻塞登录），仅记录便于排查
+		log.Printf("⚠️  读取 IMAP 服务端 greeting 失败: %v", err)
+	}
+
 	idData := &imap.IDData{
 		Name:    "MagicMail",
 		Version: "1.0.0",
