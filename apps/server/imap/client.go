@@ -152,8 +152,10 @@ func (c *IMAPClient) authenticateOAuth2() error {
 		Token:    accessToken,
 	}
 
-	if err := c.Client.Authenticate(saslClient); err != nil {
-		return fmt.Errorf("IMAP XOAUTH2 认证失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
+	if err := c.waitCommand("IMAP XOAUTH2", func() error {
+		return c.Client.Authenticate(saslClient)
+	}); err != nil {
+		return c.formatAuthError("IMAP XOAUTH2 认证", err)
 	}
 	log.Printf("✅ IMAP XOAUTH2 认证成功: %s [Provider=%s]", c.Account.Email, providerName)
 	return nil
@@ -297,12 +299,20 @@ func (c *IMAPClient) authenticateLogin() error {
 
 	c.sendClientID()
 
-	if err := c.Client.Login(c.Account.Username, c.Account.Password).Wait(); err != nil {
-		return fmt.Errorf("IMAP 登录失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
+	if err := c.waitCommand("IMAP LOGIN", func() error {
+		return c.Client.Login(c.Account.Username, c.Account.Password).Wait()
+	}); err != nil {
+		return c.formatAuthError("IMAP 登录", err)
 	}
 	log.Printf("✅ IMAP 认证成功: %s", c.Account.Email)
 	return nil
 }
+
+// imapCmdTimeout 是单个 IMAP 命令（ID / LOGIN / AUTHENTICATE）的等待上限。
+// go-imap/v2 (beta.4) 的 Command.Wait() 不接受 context，故 waitCommand 用
+// goroutine + timer 实现超时保护，避免再次出现"静默卡死 15 分钟"的情况（issue #11）。
+// 该值远大于正常网络往返，仅在连接真正卡死时触发，不会误伤高延迟链路。
+const imapCmdTimeout = 2 * time.Minute
 
 // sendClientID 发送 IMAP ID 命令声明客户端身份（RFC 2971）
 // 163/126等网易邮箱要求客户端必须发送ID命令，否则会返回 "SELECT Unsafe Login" 错误
@@ -328,10 +338,50 @@ func (c *IMAPClient) sendClientID() {
 		Version: "1.0.0",
 		Vendor:  "MagicCode",
 	}
-	if _, err := c.Client.ID(idData).Wait(); err != nil {
+	if err := c.waitCommand("IMAP ID", func() error {
+		_, err := c.Client.ID(idData).Wait()
+		return err
+	}); err != nil {
 		// ID 命令失败不阻塞登录（部分服务器可能不支持），仅记录日志
 		log.Printf("⚠️  发送 IMAP ID 命令失败 (可能服务器不支持): %v", err)
 	}
+}
+
+// waitCommand 带超时地等待一个 IMAP 命令完成。
+//
+// 背景：go-imap/v2 beta.4 的 Command.Wait() / Client.Login / Client.Authenticate
+// 均不接受 context，无法用原生手段做命令级超时。这里用 goroutine + timer 包裹，
+// 给每个命令一个上限（imapCmdTimeout），避免连接卡死时主协程无限期阻塞。
+// 超时后尽力关闭连接以唤醒被阻塞的 Wait() 协程，并返回明确的超时错误。
+func (c *IMAPClient) waitCommand(op string, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- fn()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(imapCmdTimeout):
+		// best-effort 唤醒：关闭连接让底层 Wait() 快速返回，不阻塞本函数返回路径。
+		// 极少数情况下被唤醒的 Wait() 协程可能短暂滞留，直到连接被服务端回收，可接受。
+		go c.Close()
+		return fmt.Errorf("%s 等待响应超时（%v），连接可能已卡死或与服务器握手异常", op, imapCmdTimeout)
+	}
+}
+
+// formatAuthError 将登录 / 认证错误转换为对用户更友好的提示。
+//
+// 原先裸的 "use of closed network connection" 极易让用户误以为是授权码 / 密码错误；
+// 这里对连接已关闭、EOF、超时等"网络类"错误单独给出排查方向（issue #11）。
+func (c *IMAPClient) formatAuthError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if isClosedConnErr(err) {
+		return fmt.Errorf("%s失败 (%s@%s): 与服务器的连接已断开或超时（多为网络/服务端握手异常，并非授权码或密码错误）: %w",
+			op, c.Account.Username, c.Account.Email, err)
+	}
+	return fmt.Errorf("%s失败 (%s@%s): %w", op, c.Account.Username, c.Account.Email, err)
 }
 
 // SelectINBOX 选择收件箱并返回状态信息
