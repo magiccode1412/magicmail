@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [v1.4.1] - 2026-11-02
+
+### 修复
+- 修复 QQ 邮箱同步死锁：发送 `ID` 命令前先 `WaitGreeting`，避免握手阶段卡死（`apps/server/imap/client.go`）
+- 新增 IMAP 命令级超时保护，并优化报错文案，连接异常时给出更明确的提示
+- 修复 Outlook/Hotmail 发送：改用 `XOAUTH2` 认证（`apps/server/smtp/...`）
+
+### 安全
+- 升级 axios 至 `1.20.0`（修复 SSRF 漏洞）
+- 升级 nanoid 至 `3.3.18`、source-map-js 至 `1.2.2`（修复拒绝服务 / DoS 漏洞）
+
+### 重构
+- 重构目录结构：`web/` 移至 `apps/web/`、`docs/` 移至 `apps/docs/`
+
+### 构建 & CI
+- 统一 pnpm 至 `12.x`，将构建白名单与 `overrides` 迁移至 `pnpm-workspace.yaml`
+- 固定 Air 版本为 `v1.61.7`
+- 修正 coding-copilot 扩展标识符大小写
+- CI：构建校验仅在 `apps/` 目录或 `.cnb.yml` 变更时触发
+
+### 文档
+- 记录 QQ 邮箱 IMAP 同步死锁问题及修复方案（`apps/docs/guide/known-issues.md` 等）
+
 ## [v1.4.0] - 2026-10-14
 
 ### 新增

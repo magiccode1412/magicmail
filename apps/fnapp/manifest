@@ -1,5 +1,5 @@
 appname               = magicmail
-version               = 1.4.0
+version               = 1.4.1
 display_name          = 魔法邮箱
 desc                  = """魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台，一站式收取、管理多个邮箱。支持 IMAP IDLE 实时推送、PWA 客户端、Webhook 通知、多账号管理、邮件去重等功能。
 <a href="https://github.com/magiccode1412/magicmail" target="_blank">GitHub</a>
@@ -14,9 +14,9 @@ desktop_applaunchname = magicmail.Application
 gatewayPrefix         = /app/magicmail
 gatewaySocket         = app.sock
 checkport             = false
-changelog             = """- 新增邮件翻译功能，支持将邮件正文翻译为目标语言
-- 批量删除支持实时进度显示
-- 新增自定义输入弹窗，替换浏览器原生对话框
-- 修复数据库迁移 SQL 标识符校验，规避注入风险
+changelog             = """- 修复 QQ 邮箱同步死锁、新增 IMAP 命令级超时保护
+- 修复 Outlook/Hotmail 发送改用 XOAUTH2 认证
+- 升级 axios/nanoid/source-map-js 修复安全漏洞
+- 重构目录结构，统一 pnpm 12.x 构建
 """
 
