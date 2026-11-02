@@ -25,18 +25,5 @@
     "workbox-precaching": "^7.3.0",
     "workbox-routing": "^7.3.0",
     "workbox-strategies": "^7.3.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "vue-demi"
-    ],
-    "overrides": {
-      "postcss": "8.5.18",
-      "nanoid": "3.3.18",
-      "axios": "1.20.0",
-      "form-data": "4.0.6",
-      "source-map-js": "1.2.2"
-    }
   }
 }

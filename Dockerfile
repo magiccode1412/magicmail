@@ -10,12 +10,11 @@ WORKDIR /app/web
 
 COPY apps/web/package.json apps/web/pnpm-lock.yaml* ./
 
-# 锁定 pnpm 10（与 CI 一致），避免 corepack 拉到 pnpm 11/12
-# 触发新的 ERR_PNPM_IGNORED_BUILDS 等破坏性校验；
-# esbuild / vue-demi 的安装脚本白名单已在 apps/web/package.json 的
-# pnpm.onlyBuiltDependencies 中声明。
+# 统一使用 pnpm 12.x（与 CI、开发环境一致）。
+# esbuild / vue-demi 的安装脚本白名单已在 apps/web/pnpm-workspace.yaml 的
+# allowBuilds 中声明（pnpm v11+ 的读取位置）。
 RUN corepack enable pnpm && \
-    corepack prepare pnpm@10 --activate && \
+    corepack prepare pnpm@12.16.1 --activate && \
     pnpm install --frozen-lockfile
 
 COPY apps/web/ .
