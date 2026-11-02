@@ -5,6 +5,32 @@
 
 ## 问题列表
 
+### QQ 邮箱（imap.qq.com）同步永久卡死 15 分钟（未等 greeting 导致首条命令死锁）
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-11-02
+- **对应 Issue**：[#11](https://cnb.cool/magiccode1412/magicmail/-/issues/11)
+- **问题描述**：QQ 个人邮箱（`imap.qq.com`）每次同步都跑到约 15 分钟后失败，且从未成功过。报错日志：
+
+  ```
+  🔄 开始同步 (<account>)
+  ⚠️  发送 IMAP ID 命令失败 (可能服务器不支持): unexpected EOF
+  ❌ 同步错误 (<account>): IMAP 登录失败 (<username>@<imap_host>): use of closed network connection
+  🏁 同步结束 (<account>): 耗时 15m0.223226054s
+  ```
+
+  每轮耗时都恰好 15m0.2s，从未出现认证成功。其它邮箱服务（163、Gmail）同路径正常。
+
+- **根因分析**：MagicMail 在 TLS 握手完成后**立即**发出 IMAP ID 命令，没有先读取/等待服务器的 greeting。`apps/server/imap/client.go` 的 `authenticateLogin` 与 `authenticateOAuth2` 都在 `DialTLS` 之后紧跟 `sendClientID()`，而 `sendClientID()` 之前没有任何 `WaitGreeting()` / `Caps()`。QQ（XMail）对"客户端尚未读取 greeting 时发来的第一条命令"不会立即处理而是挂起，等下条命令才一并处理；应用阻塞在 `ID().Wait()` 导致双向等待（死锁），直到服务器约 15 分钟后断开。163 / Gmail 等服务端对该时序较宽容，不暴露问题。POP3 路径不受影响（`pop3client` 先读 greeting 再 `USER`/`PASS`）。
+
+- **修复方案**：
+  1. **根因修复**：在 `sendClientID()` 内部、发送 ID 命令前先调用 `c.Client.WaitGreeting()`，确保所有服务端先完成握手播报，首条命令立即得到响应（实测 0.05s 返回）。`authenticateLogin` 与 `authenticateOAuth2` 两条认证路径都调用 `sendClientID()`，故一处修改同时受益；
+  2. **命令级超时保护**：`go-imap/v2` beta.4 的 `Command.Wait()` / `Login` / `Authenticate` 均不接受 `context`，新增 `waitCommand`（goroutine + timer 包裹）覆盖 ID / LOGIN / XOAUTH2 三条命令，单命令超过 2 分钟无响应即返回明确超时错误并尽力关闭连接唤醒阻塞的 `Wait()`，杜绝"静默卡死 15 分钟"；
+  3. **友好报错文案**：新增 `formatAuthError`，对连接已关闭 / EOF / 超时等网络类错误单独提示"**多为网络/服务端握手异常，并非授权码或密码错误**"，消除原先 `use of closed network connection` 对用户造成的"授权码/密码错误"误导。
+
+- **涉及文件**：`apps/server/imap/client.go`
+- **附注**：issue 提到的命令级超时保护与改善报错文案已随本次一并处理（见修复方案 2、3）。若相关账号此前因该问题一直同步失败，修复后重新同步即可正常；如服务端仍偶发握手异常，2 分钟超时会让失败快速暴露为可读错误而非无限等待。
+
 ### Outlook/Hotmail 发送邮件报 504 5.7.4 Unrecognized authentication type
 
 - **状态**：✅ 已修复未发布
