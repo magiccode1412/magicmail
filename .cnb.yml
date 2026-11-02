@@ -87,6 +87,9 @@ dev:
     - <<: *edgeone
     # 构建校验
     - name: build-verify
+      ifModify:
+        - "apps/**"
+        - ".cnb.yml"
       runner:
         cpus: 8
       docker:
