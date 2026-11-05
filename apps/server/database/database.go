@@ -4,7 +4,6 @@
 package database
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -151,7 +150,7 @@ func migrateUserOwnership(db *gorm.DB) {
 // validSQLIdentifier 校验字符串是否为合法 SQL 标识符（仅含字母/数字/下划线，且不以数字开头）。
 // DDL（ALTER TABLE / DROP COLUMN / pragma_table_info）无法对表名、列名做参数化绑定，
 // 此类标识符只能以字面量嵌入 SQL 文本。为防止任何来源（含未来维护者误用）的注入，
-// 在拼接待前对标识符做白名单校验，非法则拒绝执行。
+// 在拼接前对标识符做白名单校验，非法则拒绝执行。
 func validSQLIdentifier(s string) bool {
 	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(s)
 }
@@ -160,16 +159,37 @@ func validSQLIdentifier(s string) bool {
 // 老版本库在 AutoMigrate 阶段可能未补齐该列，这里显式 ALTER TABLE ADD COLUMN 修复，
 // 避免运行期出现 "no such column: user_id"。webhook_logs 仅通过 webhook_id 关联，不需要 user_id。
 func ensureUserIDColumns(db *gorm.DB) {
-	// 每个表对应一条完整 DDL 字面量：列定义不再作为可拼接片段参与 SQL 组装。
+	// 每个表对应一条完整的 DDL 与存在性检查字面量，表名不再作为片段参与 SQL 组装。
 	tables := []struct {
-		table string
-		ddl   string
+		table  string
+		exists string
+		ddl    string
 	}{
-		{"mails", "ALTER TABLE mails ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
-		{"mail_accounts", "ALTER TABLE mail_accounts ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
-		{"webhooks", "ALTER TABLE webhooks ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
-		{"drafts", "ALTER TABLE drafts ADD COLUMN user_id INTEGER"},
-		{"push_subscriptions", "ALTER TABLE push_subscriptions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
+		{
+			"mails",
+			"SELECT count(*) FROM pragma_table_info('mails') WHERE name = 'user_id'",
+			"ALTER TABLE mails ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0",
+		},
+		{
+			"mail_accounts",
+			"SELECT count(*) FROM pragma_table_info('mail_accounts') WHERE name = 'user_id'",
+			"ALTER TABLE mail_accounts ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0",
+		},
+		{
+			"webhooks",
+			"SELECT count(*) FROM pragma_table_info('webhooks') WHERE name = 'user_id'",
+			"ALTER TABLE webhooks ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0",
+		},
+		{
+			"drafts",
+			"SELECT count(*) FROM pragma_table_info('drafts') WHERE name = 'user_id'",
+			"ALTER TABLE drafts ADD COLUMN user_id INTEGER",
+		},
+		{
+			"push_subscriptions",
+			"SELECT count(*) FROM pragma_table_info('push_subscriptions') WHERE name = 'user_id'",
+			"ALTER TABLE push_subscriptions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0",
+		},
 	}
 	for _, t := range tables {
 		if !validSQLIdentifier(t.table) {
@@ -177,7 +197,7 @@ func ensureUserIDColumns(db *gorm.DB) {
 			continue
 		}
 		var cnt int64
-		db.Raw(fmt.Sprintf("SELECT count(*) FROM pragma_table_info('%s') WHERE name = 'user_id'", t.table)).Scan(&cnt)
+		db.Raw(t.exists).Scan(&cnt)
 		if cnt > 0 {
 			continue // 列已存在，跳过
 		}
