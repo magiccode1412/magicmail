@@ -10,7 +10,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.14
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	golang.org/x/crypto v0.52.0
-	golang.org/x/text v0.37.0
+	golang.org/x/text v0.39.0
 	gorm.io/gorm v1.25.10
 )
 
