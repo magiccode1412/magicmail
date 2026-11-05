@@ -8,11 +8,12 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/web
 
-COPY apps/web/package.json apps/web/pnpm-lock.yaml* ./
+COPY apps/web/package.json apps/web/pnpm-lock.yaml* apps/web/pnpm-workspace.yaml ./
 
 # 统一使用 pnpm 12.x（与 CI、开发环境一致）。
-# esbuild / vue-demi 的安装脚本白名单已在 apps/web/pnpm-workspace.yaml 的
-# allowBuilds 中声明（pnpm v11+ 的读取位置）。
+# pnpm 12 的 overrides 与 allowBuilds（esbuild / vue-demi 构建脚本白名单）
+# 都只在 apps/web/pnpm-workspace.yaml 中声明；该文件必须在 install 前复制，
+# 否则锁文件里的 overrides 会被判为配置不一致，--frozen-lockfile 直接失败。
 RUN corepack enable pnpm && \
     corepack prepare pnpm@12.16.1 --activate && \
     pnpm install --frozen-lockfile
