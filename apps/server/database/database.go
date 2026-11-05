@@ -148,9 +148,6 @@ func migrateUserOwnership(db *gorm.DB) {
 	log.Printf("✅ [迁移] 历史数据已归属管理员 (user_id=%d)", adminID)
 }
 
-// ensureUserIDColumns 兜底迁移：确保多用户隔离涉及的表都存在 user_id 列。
-// 老版本库在 AutoMigrate 阶段可能未补齐该列，这里显式 ALTER TABLE ADD COLUMN 修复，
-// 避免运行期出现 "no such column: user_id"。webhook_logs 仅通过 webhook_id 关联，不需要 user_id。
 // validSQLIdentifier 校验字符串是否为合法 SQL 标识符（仅含字母/数字/下划线，且不以数字开头）。
 // DDL（ALTER TABLE / DROP COLUMN / pragma_table_info）无法对表名、列名做参数化绑定，
 // 此类标识符只能以字面量嵌入 SQL 文本。为防止任何来源（含未来维护者误用）的注入，
@@ -159,17 +156,20 @@ func validSQLIdentifier(s string) bool {
 	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(s)
 }
 
+// ensureUserIDColumns 兜底迁移：确保多用户隔离涉及的表都存在 user_id 列。
+// 老版本库在 AutoMigrate 阶段可能未补齐该列，这里显式 ALTER TABLE ADD COLUMN 修复，
+// 避免运行期出现 "no such column: user_id"。webhook_logs 仅通过 webhook_id 关联，不需要 user_id。
 func ensureUserIDColumns(db *gorm.DB) {
-	type colDef struct {
-		table   string
-		colType string // 固定列定义片段，非运行时拼接
-	}
-	tables := []colDef{
-		{"mails", "INTEGER NOT NULL DEFAULT 0"},
-		{"mail_accounts", "INTEGER NOT NULL DEFAULT 0"},
-		{"webhooks", "INTEGER NOT NULL DEFAULT 0"},
-		{"drafts", "INTEGER"},
-		{"push_subscriptions", "INTEGER NOT NULL DEFAULT 0"},
+	// 每个表对应一条完整 DDL 字面量：列定义不再作为可拼接片段参与 SQL 组装。
+	tables := []struct {
+		table string
+		ddl   string
+	}{
+		{"mails", "ALTER TABLE mails ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
+		{"mail_accounts", "ALTER TABLE mail_accounts ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
+		{"webhooks", "ALTER TABLE webhooks ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
+		{"drafts", "ALTER TABLE drafts ADD COLUMN user_id INTEGER"},
+		{"push_subscriptions", "ALTER TABLE push_subscriptions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, t := range tables {
 		if !validSQLIdentifier(t.table) {
@@ -181,7 +181,7 @@ func ensureUserIDColumns(db *gorm.DB) {
 		if cnt > 0 {
 			continue // 列已存在，跳过
 		}
-		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN user_id %s", t.table, t.colType)).Error; err != nil {
+		if err := db.Exec(t.ddl).Error; err != nil {
 			log.Printf("⚠️  [迁移] 为 %s 表补充 user_id 列失败: %v", t.table, err)
 		} else {
 			log.Printf("✅ [迁移] 已为 %s 表补充 user_id 列", t.table)
