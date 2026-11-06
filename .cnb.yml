@@ -51,7 +51,7 @@ include:
           -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${APP_VERSION} \
           -t ${DOCKERHUB_IMAGE_TAG} \
           -t ${DOCKERHUB_USERNAME}/${CNB_REPO_NAME_LOWERCASE}:${APP_VERSION} \
-          --platform linux/amd64,linux/arm64,linux/arm/v7 --push .
+          --platform linux/amd64,linux/arm64 --push .
 
 .edgeone: &edgeone
   name: 部署文档到edgeone
