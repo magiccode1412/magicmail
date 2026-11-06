@@ -6,11 +6,27 @@
 
 一套完整的邮件代收系统，通过 IMAP 协议代理收取多个邮箱账号的邮件，统一存储至本地数据库，以现代化 PWA 客户端呈现。
 
-[官网](https://magicmail.160621.xyz/) | [GitHub](https://github.com/magiccode1412/magicmail)
+  <p>
+    </a>
+    <a href="https://www.160621.xyz/magicpush-dev/guide/changelog.html" target="_blank">
+      <img alt="Latest Version"
+        src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmagiccode1412%2Fmagicmail%2Frefs%2Fheads%2Fmain%2Fversion.json&query=%24.latest&prefix=v&style=flat&label=version&labelColor=orange">
+    </a>
+    <a href="https://hub.docker.com/r/magiccode1412/magicmail" target="_blank">
+      <img alt="Docker Pulls"
+        src="https://img.shields.io/docker/pulls/magiccode1412/magicpush?labelColor=%20%23528bff&color=%20%23155EEF">
+    </a>
+    <a href="https://hub.docker.com/r/magiccode1412/magicmail" target="_blank">
+      <img alt="Docker Image Size"
+        src="https://img.shields.io/docker/image-size/magiccode1412/magicpush">
+    </a>
+  </p>
+
+[官网](https://magicmail.160621.xyz/) | [GitHub](https://github.com/magiccode1412/magicmail) | [反馈渠道](https://cnb.cool/magiccode1412/magicmail/-/issues)
 
 </div>
 
-## ⚠️注意（2026-09-27）⚠️
+## ⚠️注意⚠️
 GitHub仓库只用于存储源代码，意见、建议或pr请移步[CNB云原生构建平台](https://cnb.cool/magiccode1412/magicmail)
 
 ## 交流&打赏
@@ -20,12 +36,12 @@ GitHub仓库只用于存储源代码，意见、建议或pr请移步[CNB云原�
     <td align="center">
       支付宝
       <br>
-      <img src="./public/images/alipay.png" alt="alipay" height="256px">
+      <img src="./public/images/alipay.webp" alt="alipay" height="256px">
     </td>
     <td align="center">
       微信
       <br>
-      <img src="./public/images/wechat.png" alt="wechat" height="256px">
+      <img src="./public/images/wechat.webp" alt="wechat" height="256px">
     </td>
   </tr>
 </table>
